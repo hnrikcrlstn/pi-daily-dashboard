@@ -9,6 +9,8 @@ RELEVANT_TRAIN_COUNT_SOUTH = 4
 RELEVANT_TRAIN_COUNT_NORTH = 2
 TRAIN_CACHE_FILENAME = "train_cache.json"
 
+RELEVANT_FUTURE_TRAINS_NORTH
+
 # Trafikverket API quirks
 UNIMPORTANT_MESSAGES = [
         "Resa förbi Arlanda C kräver både UL- och SL- biljett.", 

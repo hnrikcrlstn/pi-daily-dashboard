@@ -57,7 +57,7 @@ def make_api_call(trafik_session):
         "</REQUEST>"
     )
     try:
-        train_data = trafik_session.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=10)
+        train_data = trafik_session.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         train_data.raise_for_status()
         log_point = json.dumps({
             "fetched_at": f"{datetime.now()}",
@@ -74,7 +74,8 @@ def parse_trains():
     cached_response = {}
     with open(config.TRAIN_CACHE_FILENAME, 'r') as f:
         cached_response = json.loads(json.load(f))
-    trains = cached_response['data']['RESPONSE']['RESULT'][0]['TrainAnnouncement']
+    # TODO: remove the [0:10] limit
+    trains = cached_response['data']['RESPONSE']['RESULT'][0]['TrainAnnouncement'][0:30]
     parsed_trains = []
     current_messages = []
     future_relevant_trains = {
@@ -82,34 +83,46 @@ def parse_trains():
         'north': 0
     }
 
-    relevant_data_fetched = False
+    enough_trains_info_collected = False
     for train in trains:
-        save_current_train = False
-        #if train["AdvertisedTimeAtLocation"] > datetime.now(): # fix time check
+        arrival_time = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
+        now = datetime.now(arrival_time.tzinfo)
+        time_delta = arrival_time - now
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
-
-        if not relevant_data_fetched:
-            relevant_data_fetched = count_relevant_train_data(future_relevant_trains, 'B')
-            if northbound_train:
-                if not count_relevant_train_data(future_relevant_trains, 'N') and train["ToLocation"][0]["LocationName"] == "U":
-                    save_current_train = True
-            else:
-                if not count_relevant_train_data(future_relevant_trains, 'S'):
-                    save_current_train = True
         
-        if save_current_train:
-            deviation = None
-            if "Deviation" in train and train["Deviation"][0]["Description"] not in config.UNIMPORTANT_MESSAGES:
-                deviation = str(train["Deviation"][0]["Description"])
-            parsed_trains.append({
-                "northbound": northbound_train,
-                "arrival_date": train["AdvertisedTimeAtLocation"],
-                "arrival_time": str(train["AdvertisedTimeAtLocation"]).split("T")[-1].split(".")[0],
-                "canceled": train["Canceled"],
-                "deviation": deviation
+        # Only collect arrival time info for future trains
+        if time_delta.total_seconds() > 0:
+            save_current_train = False
+            save
+            
 
-            })
-    print(json.dumps(parsed_trains, indent=2))
+            if not enough_trains_info_collected:
+                enough_trains_info_collected = count_relevant_train_data(future_relevant_trains, 'B')
+                print(enough_trains_info_collected)
+                if northbound_train:
+                    if not count_relevant_train_data(future_relevant_trains, 'N') and train["ToLocation"][0]["LocationName"] == "U":
+                        save_current_train = True
+                        future_relevant_trains['north'] += 1
+                else:
+                    if not count_relevant_train_data(future_relevant_trains, 'S'):
+                        save_current_train = True
+                        future_relevant_trains['south'] += 1
+            
+            if save_current_train:
+                deviation = None
+                if "Deviation" in train and train["Deviation"][0]["Description"] not in config.UNIMPORTANT_MESSAGES:
+                    deviation = str(train["Deviation"][0]["Description"])
+                parsed_trains.append(
+                    {
+                        "northbound": northbound_train,
+                        "arrival_date": train["AdvertisedTimeAtLocation"].split('T')[0],
+                        "time_delta": time_delta.total_seconds(),
+                        "arrival_time": datetime.time(arrival_time),
+                        "canceled": train["Canceled"],
+                        "deviation": deviation
+                    }
+                )
+    print(parsed_trains)
 
 def count_relevant_train_data(parsed_trains, direction):
     if str(direction).upper() == 'B':
