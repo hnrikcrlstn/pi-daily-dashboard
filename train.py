@@ -1,6 +1,7 @@
 import config
 import requests
 import os
+import tempfile
 from datetime import datetime
 import time
 import json
@@ -10,6 +11,13 @@ def main():
     fetch_train_announcements(requests.Session())
     parse_trains()
     #fetch_train_data_loop()
+
+def atomic_write(path, data):
+    dir_ = os.path.dirname(path) or '.'
+    fd, tmp_path = tempfile.mkstemp(dir=dir_)
+    with os.fdopen(fd, 'w') as f:
+        json.dump(data, f)
+    os.replace(tmp_path, path)
 
 def fetch_train_data_loop():
     SESSION = requests.Session()
@@ -56,6 +64,7 @@ def fetch_train_announcements(trafik_session):
             logging.StreamHandler()
         ]
     )
+
     xml_request = (
         "<REQUEST>"
         f"<LOGIN authenticationkey='{config.TRAFIKVERKET_API_KEY}'/>"
@@ -83,15 +92,15 @@ def fetch_train_announcements(trafik_session):
         "</QUERY>"
         "</REQUEST>"
     )
+
     try:
         train_data = trafik_session.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         train_data.raise_for_status()
 
-        with open(config.TRAIN_CACHE_FILENAME, 'w') as f:
-            json.dump({
-                "fetched_at": f"{datetime.now()}",
-                "data": train_data.json()
-            }, f)
+        atomic_write(config.TRAIN_CACHE_FILENAME, {
+            "fetched_at": f"{datetime.now()}",
+            "data": train_data.json()
+        })
     except requests.exceptions.RequestException as e:
         logging.error(f"fan: {e}")
     except Exception:
@@ -108,6 +117,7 @@ def confirm_station_names(trains):
         with open(config.TRAIN_STATION_FILENAME, 'r') as f:
             cached_station_names = json.load(f)
     else:
+
         with open(config.TRAIN_STATION_FILENAME, 'w') as f:
             json.dump({}, f)
 
@@ -119,8 +129,7 @@ def confirm_station_names(trains):
         cached_station_names[new_station] = fetch_station_name(new_station)
 
     if len(new_station_names):
-        with open(config.TRAIN_STATION_FILENAME, 'w') as f:
-            json.dump(cached_station_names, f)
+        atomic_write(config.TRAIN_STATION_FILENAME, cached_station_names)
     
     return cached_station_names
 
@@ -166,12 +175,11 @@ def parse_trains():
         if "Deviation" in train and train["Deviation"][0]["Description"] not in config.UNIMPORTANT_MESSAGES:
             current_messages.append(str(train["Deviation"][0]["Description"]))
 
-    with open(config.TRAIN_PARSED_CACHE_FILENAME, 'w') as f:
-        json.dump({
-            "parsed_at": f"{datetime.now()}",
-            "deviations": current_messages,
-            "data": parsed_trains
-        }, f)
+    atomic_write(config.TRAIN_PARSED_CACHE_FILENAME, {
+        "parsed_at": f"{datetime.now()}",
+        "deviations": current_messages,
+        "data": parsed_trains
+    })
 
 if __name__ == "__main__":
     main()
