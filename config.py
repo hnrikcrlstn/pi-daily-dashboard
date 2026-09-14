@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
+# Trafikverket settings
 TRAFIKVERKET_API_KEY = os.getenv("TRAFIKVERKET_API_KEY")
 TRAFIKVERKET_BASE_URL = "https://api.trafikinfo.trafikverket.se/v2/data.json"
 TRAIN_SLEEP_DURATION = 20
@@ -31,3 +32,15 @@ UNIMPORTANT_MESSAGES = [
     ]
 NORTHBOUND_STATIONS = ['U', 'Mr', 'Arnc', 'Kn', 'Rs']
 SHORT_TRAIN_MARK = "Kort tåg"
+
+# Pillow rendering settings
+MONITOR_RESOLUTION_HEIGHT = 1024
+MONITOR_RESOLUTION_WIDTH = 600
+MONITOR_PADDING_X = 10
+MONITOR_PADDING_Y = 10
+OUTPUT_IMAGET_FILENAME = "output.png"
+MONITOR_TRANSIT_RECTANGLE_HEIGHT = 150
+MONITOR_TRANSIT_RECTANGLE_MARGIN = 10
+MONTIOR_BORDER_RADIUS = 20
+MONITOR_BPP = 16
+MONITOR_FBT_PATH = "/dev/fb0"

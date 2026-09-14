@@ -147,9 +147,12 @@ def parse_trains():
     station_names = confirm_station_names(trains)
 
     for train in trains:
-        arrival_time = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
-        now = datetime.now(arrival_time.tzinfo)
-        time_delta = arrival_time - now
+        advertised_arrival_time = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
+        new_arrival_time = advertised_arrival_time
+        delayed = False
+        if "EstimatedTimeAtLocation" in train and train["AdvertisedTimeAtLocation"] is not train["EstimatedTimeAtLocation"]:
+            delayed = True
+            new_arrival_time = datetime.fromisoformat(str(train["EstimatedTimeAtLocation"]))
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
 
         current_deviations = []
@@ -164,11 +167,13 @@ def parse_trains():
             {
                 "northbound": northbound_train,
                 "arrival_date": train["AdvertisedTimeAtLocation"].split('T')[0],
-                "time_delta_seconds": time_delta.total_seconds(),
-                "arrival_time": str(datetime.time(arrival_time)),
+                "advertised_arrival_time": str(datetime.time(advertised_arrival_time)),
+                "new_arrival_time": str(datetime.time(new_arrival_time)),
+                "arrival_timestamp": str(new_arrival_time),
                 "end_station": station_names[train["ToLocation"][0]["LocationName"]],
                 "canceled": train["Canceled"],
                 "short_train": short_train,
+                "delayed": delayed,
                 "deviation": current_deviations
             }
         )
