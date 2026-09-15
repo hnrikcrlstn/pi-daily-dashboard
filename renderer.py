@@ -31,6 +31,8 @@ class DepartureSlot:
     color: tuple
     time_left: str
     scheduled_time: str
+    end_station: str
+    advertised_time: str
 
 def load_font(name, size):
     path = os.path.join(FONT_DIR, name)
@@ -52,9 +54,11 @@ STATUS_COLORS = {
 }
 FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
-font_large = load_font("DejaVuSans-Bold.ttf", 48)
+font_large = load_font("DejaVuSans-Bold.ttf", 40)
 font_medium = load_font("DejaVuSans.ttf", 28)
 font_small = load_font("DejaVuSans.ttf", 20)
+font_weather = load_font("DejaVuSans.ttf", 15)
+font_time = load_font("DejaVuSans-Bold.ttf", 64)
 
 def load_cache(path):
     if not os.path.exists(path):
@@ -65,14 +69,21 @@ def load_cache(path):
     except (json.JSONDecodeError, OSError):
         return None
 
-def layout_box(index, columns=3, rows=2):
-    column = index // rows
-    row = index % rows
-    width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / columns - 2 * config.MONITOR_PADDING_X
+def layout_box(index):
+    column = index // config.MONITOR_TRANSIT_ROWS
+    row = index % config.MONITOR_TRANSIT_ROWS
+    width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / config.MONITOR_TRANSIT_COLUMS - 2 * config.MONITOR_PADDING_X
     height = config.MONITOR_TRANSIT_RECTANGLE_HEIGHT
-    x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / columns + config.MONITOR_PADDING_X
-    y = config.MONITOR_PADDING_Y + row * (height + config.MONITOR_PADDING_Y * 2)
+    x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / config.MONITOR_TRANSIT_COLUMS + config.MONITOR_PADDING_X
+    y = config.MONITOR_TRANSIT_SECTION_Y_START + config.MONITOR_PADDING_Y + row * (height + config.MONITOR_PADDING_Y * 2)
     return Rectangle(x=x, y=y, width=width, height=height)
+
+def draw_strikethrough_text(draw, xy, text, font, fill, anchor="mm"):
+    draw.text(xy, text, font=font, fill=fill, anchor=anchor)
+    bbox = draw.textbbox(xy, text, font=font, anchor=anchor)
+    left, top, right, bottom = bbox
+    mid_y = (top + bottom) / 2
+    draw.line((left, mid_y, right, mid_y), fill=fill, width=2)
 
 def compute_status(dep: dict) -> str:
     if dep.get("cancelled",False):
@@ -100,7 +111,9 @@ def build_slots(south, north):
                 status=status,
                 color=STATUS_COLORS[status],
                 time_left=format_time_left(dep),
-                scheduled_time=dep.get("new_arrival_time", "?")
+                advertised_time=dep.get("advertised_arrival_time", "?"),
+                scheduled_time=dep.get("new_arrival_time", "?"),
+                end_station=dep.get("end_station", "").get("short_name", "")
             )
         )
     return slots
@@ -144,22 +157,52 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         draw.rounded_rectangle(
             slot.box.bounds,
             radius=config.MONTIOR_BORDER_RADIUS,
-            fill=ALERT
+            fill=MUTED
         )
 
         pad = config.MONITOR_PADDING_X // 2
-        draw.text((slot.box.x + pad, slot.box.y + pad), slot.scheduled_time, font=font_large, fill=slot.color)
-        draw.text((slot.box.x + pad, slot.box.y + pad + 50), "Avgång", font=font_medium, fill=FG)
-        draw.text((slot.box.x + pad, slot.box.y + pad + 80), slot.time_left, font=font_large, fill=slot.color)
+        if slot.status == "delayed":
+            draw_strikethrough_text(draw,(slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad), slot.advertised_time, font=font_small, fill=slot.color, anchor="mt")
+            draw.text((slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_large, fill=slot.color, anchor="mt")
+        else:
+            draw.text((slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_large, fill=slot.color, anchor="mt")
+        # draw.text((slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + pad +  50), "Avgång", font=font_small, fill=FG, anchor="mt")
+        draw.text((slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + pad +  80), slot.time_left, font=font_large, fill=slot.color, anchor="mt")
+        draw.text((slot.box.x + config.MONITOR_TRANSIT_RECTANGLE_WIDTH / 2, slot.box.y + pad +  120), slot.end_station, font=font_small, fill=slot.color, anchor="mt")
 
     if (datetime.now() - fetch_time).total_seconds() > 120:
         draw.text(
-            (config.MONITOR_PADDING_X, config.MONITOR_RESOLUTION_HEIGHT - 2 * config.MONITOR_PADDING_Y),
+            (config.MONITOR_PADDING_X, config.MONITOR_RESOLUTION_HEIGHT - 3 * config.MONITOR_PADDING_Y),
             f"Updated: {fetch_time.strftime('%H:%M')}",
             font=font_small,
             fill=MUTED
         )
 
+def draw_transit_messages(draw, messages):
+    if messages:
+        for i, message in enumerate(messages):
+            if i < config.MONITOR_MAX_MESSAGE_COUNT:
+                draw.text((config.MONITOR_PADDING_X, config.MONITOR_MESSAGE_SECTION_Y_START + 1.6 * i * config.MONITOR_MESSAGE_FONT_HEIGHT), message, font=font_weather, fill=FG)
+            else:
+                draw.text((config.MONITOR_PADDING_X, config.MONITOR_MESSAGE_SECTION_Y_START + 1.6 * i * config.MONITOR_MESSAGE_FONT_HEIGHT), "...", font=font_weather, fill=FG)
+                return
+
+def draw_weather(draw):
+    # Currently only filler for positioning
+    # Additional margin-left to monitor message overlap
+    draw.rounded_rectangle(
+        (3 * config.MONITOR_PADDING_X, config.MONITOR_WEATHER_SECTION_Y_START, config.MONITOR_RESOLUTION_WIDTH - 2 * config.MONITOR_PADDING_X ,config.MONITOR_RESOLUTION_HEIGHT - config.MONITOR_PADDING_Y),
+        radius=config.MONTIOR_BORDER_RADIUS,
+        fill=(0,255,0)
+    )
+def draw_time(draw):
+    draw.text(
+        (config.MONITOR_RESOLUTION_WIDTH / 2, config.MONITOR_PADDING_Y + 30),
+        datetime.strftime(datetime.now(),"%H:%M"),
+        font=font_time,
+        fill=FG,
+        anchor="mm"
+    )
 """"" - old draw transit section def
 def draw_transit_section(draw, departures, fetch_time, x, y):
     if departures is None:
@@ -220,6 +263,9 @@ def render():
 
     #draw_weather_section(draw, weather_data, x=40, y=40)
     draw_transit_section(draw, fetch_relevant_trains(transit_data["data"]),datetime.fromisoformat(transit_data["parsed_at"]),x=40,y=40)
+    draw_transit_messages(draw, transit_data.get("deviations", None))
+    draw_weather(draw)
+    draw_time(draw)
 
     img.save(config.OUTPUT_IMAGET_FILENAME)
     print(f"Rendered to {config.OUTPUT_IMAGET_FILENAME} at {datetime.now(timezone.utc).isoformat()}")
