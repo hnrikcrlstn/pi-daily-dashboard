@@ -147,29 +147,32 @@ def parse_trains():
     station_names = confirm_station_names(trains)
 
     for train in trains:
-        advertised_arrival_time = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
-        new_arrival_time = advertised_arrival_time
+        advertised_arrival_time_timestamp = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
+        new_arrival_time_timestamp = advertised_arrival_time_timestamp
         delayed = False
         if "EstimatedTimeAtLocation" in train and train["AdvertisedTimeAtLocation"] is not train["EstimatedTimeAtLocation"]:
             delayed = True
-            new_arrival_time = datetime.fromisoformat(str(train["EstimatedTimeAtLocation"]))
+            new_arrival_time_timestamp = datetime.fromisoformat(str(train["EstimatedTimeAtLocation"]))
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
+        advertised_arrival_time = datetime.strftime(advertised_arrival_time_timestamp, "%H:%M")
+        new_arrival_time = datetime.strftime(new_arrival_time_timestamp, "%H:%M")
 
         current_deviations = []
         short_train = False
         if "Deviation" in train:
             for deviation in train["Deviation"]:
                 if deviation["Description"] not in config.UNIMPORTANT_MESSAGES:
-                    current_deviations.append(str(deviation["Description"]))
+                    current_deviations.append(f"{new_arrival_time} Linje {train['ProductInformation'][1]['Code']} - {str(deviation["Description"])}")
                 if deviation["Description"] in config.SHORT_TRAIN_MARK:
                     short_train = True
         parsed_trains.append(
             {
                 "northbound": northbound_train,
                 "arrival_date": train["AdvertisedTimeAtLocation"].split('T')[0],
-                "advertised_arrival_time": str(datetime.time(advertised_arrival_time)),
-                "new_arrival_time": str(datetime.time(new_arrival_time)),
-                "arrival_timestamp": str(new_arrival_time),
+                "advertised_arrival_time_timestamp": str(advertised_arrival_time_timestamp),
+                "new_arrival_time_timestamp": str(new_arrival_time_timestamp),
+                "advertised_arrival_time": str(advertised_arrival_time),
+                "new_arrival_time": str(new_arrival_time),
                 "end_station": station_names[train["ToLocation"][0]["LocationName"]],
                 "canceled": train["Canceled"],
                 "short_train": short_train,
@@ -178,7 +181,7 @@ def parse_trains():
             }
         )
         if "Deviation" in train and train["Deviation"][0]["Description"] not in config.UNIMPORTANT_MESSAGES:
-            current_messages.append(str(train["Deviation"][0]["Description"]))
+            current_messages.append(f"{new_arrival_time_timestamp} Linje {train['ProductInformation'][1]['Code']} - {str(deviation['Description'])}")
 
     atomic_write(config.TRAIN_PARSED_CACHE_FILENAME, {
         "parsed_at": f"{datetime.now()}",

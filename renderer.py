@@ -2,20 +2,17 @@ import config
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import math
 import os
 from datetime import datetime, timezone
 
-# For testing purposes - enable on actual hardware
-RENDER_IMAGE = False
-
 @dataclass
 class Rectangle:
-    x: int
-    y: int
-    width: int
-    height: int
+    x: float
+    y: float
+    width: float
+    height: float
 
     @property
     def bounds(self):
@@ -26,6 +23,15 @@ class Rectangle:
             self.y + self.height
         )
 
+@dataclass
+class DepartureSlot:
+    departure: dict
+    box: Rectangle
+    status: str
+    color: tuple
+    time_left: str
+    scheduled_time: str
+
 def load_font(name, size):
     path = os.path.join(FONT_DIR, name)
     try:
@@ -33,10 +39,17 @@ def load_font(name, size):
     except OSError:
         return ImageFont.load_default()
 
+
+# TODO: Move to config file?
 BG = (66, 66, 66)
 FG = (235, 235, 235)
 MUTED = (140, 140, 145)
 ALERT = (200, 60, 60)
+STATUS_COLORS = {
+    "on_time": FG,
+    "delayed": ALERT,
+    "cancelled": ALERT # Might change to another color in the future
+}
 FONT_DIR = "/usr/share/fonts/truetype/dejavu"
 
 font_large = load_font("DejaVuSans-Bold.ttf", 48)
@@ -52,6 +65,46 @@ def load_cache(path):
     except (json.JSONDecodeError, OSError):
         return None
 
+def layout_box(index, columns=3, rows=2):
+    column = index // rows
+    row = index % rows
+    width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / columns - 2 * config.MONITOR_PADDING_X
+    height = config.MONITOR_TRANSIT_RECTANGLE_HEIGHT
+    x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / columns + config.MONITOR_PADDING_X
+    y = config.MONITOR_PADDING_Y + row * (height + config.MONITOR_PADDING_Y * 2)
+    return Rectangle(x=x, y=y, width=width, height=height)
+
+def compute_status(dep: dict) -> str:
+    if dep.get("cancelled",False):
+        return "cancelled"
+    if dep.get("delayed", False):
+        return "delayed"
+    return "on_time"
+
+def format_time_left(dep: dict) -> str:
+    arrival = datetime.fromisoformat(str(dep["new_arrival_time_timestamp"]))
+    delta_min = math.floor(
+        (arrival - datetime.now(arrival.tzinfo)).total_seconds() / 60
+    )
+    return "Nu" if delta_min < 1 else f"{delta_min + 1} min"
+
+def build_slots(south, north):
+    combined = list(south[:4]) + list(north[:2])
+    slots = []
+    for i, dep in enumerate(combined):
+        status = compute_status(dep)
+        slots.append(
+            DepartureSlot(
+                departure=dep,
+                box=layout_box(i),
+                status=status,
+                color=STATUS_COLORS[status],
+                time_left=format_time_left(dep),
+                scheduled_time=dep.get("new_arrival_time", "?")
+            )
+        )
+    return slots
+
 def fetch_relevant_trains(trains):
     relevant_train_count = {
         'south': 0,
@@ -63,7 +116,7 @@ def fetch_relevant_trains(trains):
     }
     enough_trains_collected = False
     for train in trains:
-        arrival_time = datetime.fromisoformat(train["arrival_timestamp"])
+        arrival_time = datetime.fromisoformat(train["new_arrival_time_timestamp"])
         now = datetime.now(arrival_time.tzinfo)
         time_delta = arrival_time - now
 
@@ -82,15 +135,48 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         draw.text((x, y), "Transit unavailable", font=font_medium, fill=MUTED)
         return
 
+    slots = build_slots(
+        departures.get("south", []),
+        departures.get("north", [])
+    )
+
+    for slot in slots:
+        draw.rounded_rectangle(
+            slot.box.bounds,
+            radius=config.MONTIOR_BORDER_RADIUS,
+            fill=ALERT
+        )
+
+        pad = config.MONITOR_PADDING_X // 2
+        draw.text((slot.box.x + pad, slot.box.y + pad), slot.scheduled_time, font=font_large, fill=slot.color)
+        draw.text((slot.box.x + pad, slot.box.y + pad + 50), "Avgång", font=font_medium, fill=FG)
+        draw.text((slot.box.x + pad, slot.box.y + pad + 80), slot.time_left, font=font_large, fill=slot.color)
+
+    if (datetime.now() - fetch_time).total_seconds() > 120:
+        draw.text(
+            (config.MONITOR_PADDING_X, config.MONITOR_RESOLUTION_HEIGHT - 2 * config.MONITOR_PADDING_Y),
+            f"Updated: {fetch_time.strftime('%H:%M')}",
+            font=font_small,
+            fill=MUTED
+        )
+
+""""" - old draw transit section def
+def draw_transit_section(draw, departures, fetch_time, x, y):
+    if departures is None:
+        draw.text((x, y), "Transit unavailable", font=font_medium, fill=MUTED)
+        return
+
     boxes = []
     for i in range(6):
-        top_row = int(i % 2 == 0)
+        # 2 rows with 3 colums each for the trains
+        row = int(i % 2 == 0)
+        column = math.floor(i / 2)
         boxes.append(
             Rectangle(
-                x=math.floor(i/2) * (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 2) / 3 + config.MONITOR_PADDING_X,
-                y=config.MONITOR_TRANSIT_RECTANGLE_HEIGHT + top_row * (config.MONITOR_TRANSIT_RECTANGLE_HEIGHT + config.MONITOR_PADDING_Y * 2),
-                width=(config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 2) / 3 - config.MONITOR_PADDING_X,
-                height=config.MONITOR_TRANSIT_RECTANGLE_HEIGHT
+                x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / 3 + config.MONITOR_PADDING_X,
+                y = config.MONITOR_TRANSIT_RECTANGLE_HEIGHT + row * (config.MONITOR_TRANSIT_RECTANGLE_HEIGHT + config.MONITOR_PADDING_Y * 2),
+                width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / 3 - 2 * config.MONITOR_PADDING_X,
+                height = config.MONITOR_TRANSIT_RECTANGLE_HEIGHT
             )
         )
     for box in boxes:
@@ -100,7 +186,6 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
             fill=FG
         )
 
-    row_height = 45
     for i, dep in enumerate(departures["south"]):
         time_delta = math.floor((datetime.fromisoformat(str(dep["arrival_timestamp"])) - datetime.now(datetime.fromisoformat(dep["arrival_timestamp"]).tzinfo)).total_seconds()/60)
         time_left = f"{time_delta + 1} min"
@@ -110,9 +195,9 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         y_diff = 0
         if i > 1:
             x_diff = 200
-            y_diff = -2*row_height
-        row_y = y + i * row_height
-        is_delayed = dep.get("delayed", True)
+            y_diff = -2* config.MONITOR_ROW_HEIGHT
+        row_y = y + i * config.MONITOR_ROW_HEIGHT
+        is_delayed = dep.get("delayed", False)
         color = ALERT if is_delayed else FG
         line = f"{time_left}\n{dep.get('end_station', {}).get('short_name', '?'):<20}"
         rows = [
@@ -122,10 +207,9 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         ]
         draw.text((x + x_diff, row_y + y_diff), line, font=font_small, fill=color)
 
-    #fetched_at = data.get("fetched_at")
-    if fetch_time:
-        age_note = f"Updated {fetch_time}"
-        draw.text((x, y + 6 * row_height + 10), age_note, font=font_small, fill=MUTED)
+    if (datetime.now() - fetch_time).total_seconds() > 120:
+        draw.text((config.MONITOR_PADDING_X, config.MONITOR_RESOLUTION_HEIGHT - 2 * config.MONITOR_PADDING_Y), f"Updated: {fetch_time.strftime('%H:%M')}", font=font_small, fill=MUTED)
+"""
 
 def render():
     img = Image.new("RGB", (config.MONITOR_RESOLUTION_WIDTH, config.MONITOR_RESOLUTION_HEIGHT), BG)
@@ -135,17 +219,15 @@ def render():
     transit_data = load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
 
     #draw_weather_section(draw, weather_data, x=40, y=40)
-    draw_transit_section(draw, fetch_relevant_trains(transit_data["data"]),transit_data["parsed_at"],x=40,y=40)
+    draw_transit_section(draw, fetch_relevant_trains(transit_data["data"]),datetime.fromisoformat(transit_data["parsed_at"]),x=40,y=40)
 
     img.save(config.OUTPUT_IMAGET_FILENAME)
     print(f"Rendered to {config.OUTPUT_IMAGET_FILENAME} at {datetime.now(timezone.utc).isoformat()}")
 
-    if RENDER_IMAGE:
-        push_to_fb()
-
+    push_to_fb()
 
 def push_to_fb():
-    img = Image.open(config.OUTPUT_IMAGET_FILENAME).convert("RGB").resize((config.MONITOR_RESOLUTION_WIDTH, config.MONITOR_RESOLUTION_HEIGHT))
+    img = Image.open(config.OUTPUT_IMAGET_FILENAME).convert("RGB").resize((config.MONITOR_RESOLUTION_HEIGHT, config.MONITOR_RESOLUTION_WIDTH)).rotate(-90, expand=True)
     arr = np.array(img)
 
     if config.MONITOR_BPP == 16:
@@ -160,7 +242,7 @@ def push_to_fb():
         raw = rgba.tobytes()
     else:
         raise ValueError(f"Unsupported bpp: {config.MONITOR_BPP}")
-    with open(config.MONITOR_FBT_PATH, "wb") as f:
+    with open(config.MONITOR_FB_PATH, "wb") as f:
         f.write(raw)
 
 if __name__ == "__main__":
