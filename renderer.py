@@ -273,7 +273,7 @@ def render():
     push_to_fb()
 
 def push_to_fb():
-    img = Image.open(config.OUTPUT_IMAGET_FILENAME).convert("RGB").resize((config.MONITOR_RESOLUTION_HEIGHT, config.MONITOR_RESOLUTION_WIDTH)).rotate(-90, expand=True)
+    img = Image.open(config.OUTPUT_IMAGET_FILENAME).convert("RGB").resize((config.MONITOR_RESOLUTION_WIDTH, config.MONITOR_RESOLUTION_HEIGHT)).rotate(-90, expand=True)
     arr = np.array(img)
 
     if config.MONITOR_BPP == 16:
