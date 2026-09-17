@@ -35,9 +35,9 @@ NORTHBOUND_STATIONS = ['U', 'Mr', 'Arnc', 'Kn', 'Rs']
 SHORT_TRAIN_MARK = "Kort tåg"
 
 # Pillow rendering settings
-FONT_DIR = "/usr/share/fonts/truetype/dejavu"
-FONT_FILENAME_NORMAL = "DejaVuSans.ttf"
-FONT_FILENAME_BOLD = "DejaVuSans-Bold.ttf"
+FONT_DIR = "/usr/share/fonts/google-noto"
+FONT_FILENAME_NORMAL = "NotoSansMono-Medium.ttf"
+FONT_FILENAME_BOLD = "NotoSansMono-Bold.ttf"
 MONITOR_RESOLUTION_HEIGHT = 1024
 MONITOR_RESOLUTION_WIDTH = 600
 MONITOR_PADDING_X = 10

@@ -70,8 +70,8 @@ ICON_SIZE = 80
 DEPARTURE_AREA_HEIGHT = 150
 DEPARTURE_AREA_BORDER_RADIUS = 20
 MONITOR_ROW_HEIGHT = 45
-MONITOR_TRANSIT_SECTION_Y_START = 80
-MONITOR_MESSAGE_SECTION_Y_START = MONITOR_TRANSIT_SECTION_Y_START + 350
+MONITOR_TRANSIT_SECTION_Y_START = 70
+MONITOR_MESSAGE_SECTION_Y_START = MONITOR_TRANSIT_SECTION_Y_START + 340
 MONITOR_WEATHER_SECTION_Y_START = MONITOR_MESSAGE_SECTION_Y_START + 290
 MONITOR_MESSAGE_FONT_HEIGHT = 10
 MONITOR_TRANSIT_COLUMS = 3
@@ -80,13 +80,13 @@ MONITOR_THIRD_RECTANGLE_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MO
 WEATHER_ICON_CENTRER_OFFSET = 45
 WEATHER_CELL_WIDTH = 210
 
-font_large = load_font(config.FONT_FILENAME_BOLD, 38)
+font_extralarge = load_font(config.FONT_FILENAME_BOLD, 48)
+font_large = load_font(config.FONT_FILENAME_BOLD, 30)
 font_medium = load_font(config.FONT_FILENAME_NORMAL, 28)
 font_small = load_font(config.FONT_FILENAME_NORMAL, 20)
 font_update = load_font(config.FONT_FILENAME_NORMAL, 10)
 font_weather = load_font(config.FONT_FILENAME_NORMAL, 15)
 font_time = load_font(config.FONT_FILENAME_NORMAL, 64)
-font_weather = load_font(config.FONT_FILENAME_NORMAL, 15)
 
 def layout_box(index):
     column = index // MONITOR_TRANSIT_ROWS
@@ -185,14 +185,14 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         pad = config.MONITOR_PADDING_X // 2
         if slot.status == "delayed":
             draw_strikethrough_text(draw,(slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad), slot.advertised_time, font=font_small, fill=slot.text_color, anchor="mt")
-            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_large, fill=slot.text_color, anchor="mt")
+            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
         elif slot.status == "cancelled":
-            draw_strikethrough_text(draw, (slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_large, fill=slot.text_color, anchor="mt")
+            draw_strikethrough_text(draw, (slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
             slot.time_left = "Inställt"
         else:
-            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_large, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  80), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  120), slot.end_station, font=font_small, fill=slot.text_color, anchor="mt")
+            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 15), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  70), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  110), slot.end_station, font=font_small, fill=slot.text_color, anchor="mt")
 
     if datetime.now() - fetch_time > timedelta(minutes=2):
         draw.text(
@@ -240,12 +240,27 @@ def draw_weather_entry(draw, img, entry, label, x, y_offset):
     draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_weather, fill=FG, anchor="mt")
 
 def draw_time(draw):
+    now = datetime.now()
     draw.text(
         (config.MONITOR_RESOLUTION_WIDTH / 2, config.MONITOR_PADDING_Y + 30),
-        datetime.strftime(datetime.now(),"%H:%M"),
+        datetime.strftime(now,"%H:%M"),
         font=font_time,
         fill=FG,
         anchor="mm"
+    )
+    draw.text(
+        (config.MONITOR_PADDING_X, config.MONITOR_PADDING_Y + 30),
+        datetime.strftime(now, "Vecka %-U"),
+        font= font_medium,
+        fill=FG,
+        anchor="lm"
+    )
+    draw.text(
+        (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X, config.MONITOR_PADDING_Y + 30),
+        datetime.strftime(now, "%-d/%-m"),
+        font= font_medium,
+        fill=FG,
+        anchor="rm"
     )
 
 def main():
