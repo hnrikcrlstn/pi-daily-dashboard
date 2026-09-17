@@ -104,6 +104,9 @@ The following files are written to the working directory at runtime and are safe
 | `train_station_names_cache.json` | `train.py` | Station name lookups to avoid repeated API calls |
 | `output.png` | `renderer.py` | Last rendered display image |
 
+## Resources
+Weather icons from https://github.com/Makin-Things/weather-icons
+
 ## License
 
 See [LICENSE](LICENSE).
