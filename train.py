@@ -6,7 +6,7 @@ import time
 import json
 
 def main():
-    fetch_train_announcements(requests.Session())
+    fetch_train_announcements(requests.Session()) # For testing, manually run fetch outside of loop
     parse_trains()
     #fetch_train_data_loop()
 
@@ -29,7 +29,7 @@ def fetch_station_name(station_code):
         "</REQUEST>"
     )
 
-    time.sleep(1)
+    time.sleep(config.API_CURTESY_WAIT_SECONDS)
     try:
         station_data = requests.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         station_data.raise_for_status()
@@ -122,7 +122,6 @@ def parse_trains():
     station_names = confirm_station_names(trains)
 
     for train in trains:
-        train_number = train['ProductInformation'][TRAIN_NUMBER_INDEX]['Code']
         advertised_arrival_time_timestamp = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
         new_arrival_time_timestamp = advertised_arrival_time_timestamp
         delayed = False
@@ -131,6 +130,11 @@ def parse_trains():
             delayed = True
             new_arrival_time_timestamp = datetime.fromisoformat(str(estimated))
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
+        train_number = train['ProductInformation'][TRAIN_NUMBER_INDEX]['Description']
+        if northbound_train:
+            train_number += " N"
+        else:
+            train_number += " S"
         advertised_arrival_time = datetime.strftime(advertised_arrival_time_timestamp, "%H:%M")
         new_arrival_time = datetime.strftime(new_arrival_time_timestamp, "%H:%M")
 
@@ -139,8 +143,7 @@ def parse_trains():
         if "Deviation" in train:
             for deviation in train["Deviation"]:
                 if deviation["Description"] not in config.UNIMPORTANT_MESSAGES:
-                    current_messages.append(current_deviations)
-                    current_deviations.append(f"{new_arrival_time} Linje {train_number} - {str(deviation["Description"])}")
+                    current_deviations.append(str(deviation["Description"]))
                 if deviation["Description"] in config.SHORT_TRAIN_MARK:
                     short_train = True
         parsed_trains.append(
@@ -155,9 +158,11 @@ def parse_trains():
                 "cancelled": train["Canceled"],
                 "short_train": short_train,
                 "delayed": delayed,
-                "deviation": current_deviations
+                "deviation": f"{new_arrival_time} Linje {train_number} - {current_deviations}"
             }
         )
+        if len(current_deviations):
+            current_messages.append(f"{new_arrival_time} Linje {train_number} - {', '.join(current_deviations)}")
 
     utils.atomic_write(config.TRAIN_PARSED_CACHE_FILENAME, {
         "parsed_at": f"{datetime.now()}",
