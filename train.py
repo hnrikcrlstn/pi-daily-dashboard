@@ -1,23 +1,14 @@
 import config
+import utils
 import requests
-import os
-import tempfile
 from datetime import datetime
 import time
 import json
-import logging
 
 def main():
     fetch_train_announcements(requests.Session())
     parse_trains()
     #fetch_train_data_loop()
-
-def atomic_write(path, data):
-    dir_ = os.path.dirname(path) or '.'
-    fd, tmp_path = tempfile.mkstemp(dir=dir_)
-    with os.fdopen(fd, 'w') as f:
-        json.dump(data, f)
-    os.replace(tmp_path, path)
 
 def fetch_train_data_loop():
     SESSION = requests.Session()
@@ -49,22 +40,11 @@ def fetch_station_name(station_code):
                 "short_name": station_data.json()["RESPONSE"]["RESULT"][0]["TrainStation"][0]["AdvertisedShortLocationName"]
             }
     except requests.exceptions.RequestException as e:
-        logging.error(f"fan: {e}")
+        logging.error(f"API error from fetch_station_name(): {e}")
     except Exception:
         logging.exception(Exception)
 
 def fetch_train_announcements(trafik_session):
-    log_filename = f"logs/run_{datetime.now().strftime('%Y-%m-%d')}.log"
-    os.makedirs('logs', exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s %(levelname)s %(message)s',
-        handlers=[
-            logging.FileHandler(log_filename),
-            logging.StreamHandler()
-        ]
-    )
-
     xml_request = (
         "<REQUEST>"
         f"<LOGIN authenticationkey='{config.TRAFIKVERKET_API_KEY}'/>"
@@ -97,12 +77,12 @@ def fetch_train_announcements(trafik_session):
         train_data = trafik_session.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         train_data.raise_for_status()
 
-        atomic_write(config.TRAIN_CACHE_FILENAME, {
+        utils.atomic_write(config.TRAIN_CACHE_FILENAME, {
             "fetched_at": f"{datetime.now()}",
             "data": train_data.json()
         })
     except requests.exceptions.RequestException as e:
-        logging.error(f"fan: {e}")
+        logging.error(f"API error from fetch_train_announcements(): {e}")
     except Exception:
         logging.exception(Exception)
 
@@ -113,13 +93,7 @@ def confirm_station_names(trains):
     for train in trains:
         station_dict[train["ToLocation"][0]["LocationName"]] = True
 
-    if os.path.isfile(config.TRAIN_STATION_FILENAME):
-        with open(config.TRAIN_STATION_FILENAME, 'r') as f:
-            cached_station_names = json.load(f)
-    else:
-
-        with open(config.TRAIN_STATION_FILENAME, 'w') as f:
-            json.dump({}, f)
+    cached_station_names = utils.load_cache(config.TRAIN_STATION_FILENAME)
 
     for station in station_dict.keys():
         if station not in cached_station_names:
@@ -129,11 +103,12 @@ def confirm_station_names(trains):
         cached_station_names[new_station] = fetch_station_name(new_station)
 
     if len(new_station_names):
-        atomic_write(config.TRAIN_STATION_FILENAME, cached_station_names)
+        utils.atomic_write(config.TRAIN_STATION_FILENAME, cached_station_names)
     
     return cached_station_names
 
 def parse_trains():
+    TRAIN_NUMBER_INDEX = 1
     cached_response = {}
     parsed_trains = []
     current_messages = []
@@ -147,12 +122,14 @@ def parse_trains():
     station_names = confirm_station_names(trains)
 
     for train in trains:
+        train_number = train['ProductInformation'][TRAIN_NUMBER_INDEX]['Code']
         advertised_arrival_time_timestamp = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
         new_arrival_time_timestamp = advertised_arrival_time_timestamp
         delayed = False
-        if "EstimatedTimeAtLocation" in train and train["AdvertisedTimeAtLocation"] is not train["EstimatedTimeAtLocation"]:
+        estimated = train.get("EstimatedTimeAtLocation", train["AdvertisedTimeAtLocation"])
+        if train["AdvertisedTimeAtLocation"] != estimated:
             delayed = True
-            new_arrival_time_timestamp = datetime.fromisoformat(str(train["EstimatedTimeAtLocation"]))
+            new_arrival_time_timestamp = datetime.fromisoformat(str(estimated))
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
         advertised_arrival_time = datetime.strftime(advertised_arrival_time_timestamp, "%H:%M")
         new_arrival_time = datetime.strftime(new_arrival_time_timestamp, "%H:%M")
@@ -162,7 +139,8 @@ def parse_trains():
         if "Deviation" in train:
             for deviation in train["Deviation"]:
                 if deviation["Description"] not in config.UNIMPORTANT_MESSAGES:
-                    current_deviations.append(f"{new_arrival_time} Linje {train['ProductInformation'][1]['Code']} - {str(deviation["Description"])}")
+                    current_messages.append(current_deviations)
+                    current_deviations.append(f"{new_arrival_time} Linje {train_number} - {str(deviation["Description"])}")
                 if deviation["Description"] in config.SHORT_TRAIN_MARK:
                     short_train = True
         parsed_trains.append(
@@ -174,16 +152,14 @@ def parse_trains():
                 "advertised_arrival_time": str(advertised_arrival_time),
                 "new_arrival_time": str(new_arrival_time),
                 "end_station": station_names[train["ToLocation"][0]["LocationName"]],
-                "canceled": train["Canceled"],
+                "cancelled": train["Canceled"],
                 "short_train": short_train,
                 "delayed": delayed,
                 "deviation": current_deviations
             }
         )
-        if "Deviation" in train and train["Deviation"][0]["Description"] not in config.UNIMPORTANT_MESSAGES:
-            current_messages.append(f"{new_arrival_time_timestamp} Linje {train['ProductInformation'][1]['Code']} - {str(deviation['Description'])}")
 
-    atomic_write(config.TRAIN_PARSED_CACHE_FILENAME, {
+    utils.atomic_write(config.TRAIN_PARSED_CACHE_FILENAME, {
         "parsed_at": f"{datetime.now()}",
         "deviations": current_messages,
         "data": parsed_trains
