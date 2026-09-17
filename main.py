@@ -16,6 +16,7 @@ logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler
 if __name__ == "__main__":
     
     train.main()
+    weather.main()
     renderer.main()
 
     # Schedule

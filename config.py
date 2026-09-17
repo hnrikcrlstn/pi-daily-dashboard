@@ -1,6 +1,8 @@
 import os
 from dotenv import load_dotenv
 
+API_CURTESY_WAIT_SECONDS = 2
+
 load_dotenv()
 # Trafikverket settings
 TRAFIKVERKET_API_KEY = os.getenv("TRAFIKVERKET_API_KEY")
@@ -48,4 +50,7 @@ MONITOR_IMAGE_ROTATION = -90
 
 # Weather information
 WEATHER_GPS_PRIMARY_LOCATION = "latitude=59.5222&longitude=17.91"
+WEATHER_PRIMARY_LOCATION_NAME = "Upplands Väsby"
+WEATHER_SECONDARY_LOCATION_NAME = "Stockholm"
 WEATHER_GPS_SECONDARY_LOCATION = "latitude=59.332257&longitude=18.060147"
+WEATHER_CACHE_FILENAME = "weather_cache.json"
