@@ -25,16 +25,25 @@ utils.py        # Shared utilities across files
 ### Data flow
 
 ```
-Trafikverket API
-      │
-  train.py  ──► train_cache.json
-                      │
-                  train.py  ──► parsed_train_cache.json
-                                        │
-                                   renderer.py  ──► /dev/fb0
+Trafikverket API          Open-Meteo API
+       │                        │
+   train.py                 weather.py
+   fetch_train_announcements()  fetch_weather()
+       │                        │
+ train_cache.json        weather_cache.json
+       │
+   train.py
+   parse_trains()
+       │
+ parsed_train_cache.json  weather_cache.json
+              │                  │
+              └──────┬───────────┘
+                renderer.py
+                     │
+                  /dev/fb0
 ```
 
-The renderer reads only from the parsed cache file, so it can continue rendering during API downtime.
+The renderer reads only from cache files, so it continues rendering during API or network outages. A staleness warning is shown on the display if train data is older than 2 minutes.
 
 ## Requirements
 
@@ -117,15 +126,14 @@ ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/weather_poll.py
 `/etc/systemd/system/weather-poll.timer`
 ```bash
 [Unit]
-Description=Fetch weather data
-Wants=network-online.target
-After=network-online.target
+Description=Run weather poll hourly
 
-[Service]
-Type=oneshot
-User=pi
-WorkingDirectory=/home/pi/dashboard
-ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/weather_poll.py
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
 ```
 
 `/etc/systemd/system/dashboard-render.service`
