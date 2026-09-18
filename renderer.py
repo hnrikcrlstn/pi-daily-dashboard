@@ -3,8 +3,7 @@ import utils
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from functools import lru_cache
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 import os
 from datetime import datetime, timezone, timedelta
@@ -27,7 +26,6 @@ class Rectangle:
 
 @dataclass
 class DepartureSlot:
-    departure: dict
     box: Rectangle
     status: str
     text_color: tuple
@@ -36,6 +34,7 @@ class DepartureSlot:
     scheduled_time: str
     end_station: str
     advertised_time: str
+    short_train: bool
 
 @lru_cache(maxsize=None)
 def load_icon(icon):
@@ -69,32 +68,34 @@ ICON_SIZE = 80
 
 DEPARTURE_AREA_HEIGHT = 150
 DEPARTURE_AREA_BORDER_RADIUS = 20
-MONITOR_ROW_HEIGHT = 45
-MONITOR_TRANSIT_SECTION_Y_START = 70
-MONITOR_MESSAGE_SECTION_Y_START = MONITOR_TRANSIT_SECTION_Y_START + 340
-MONITOR_WEATHER_SECTION_Y_START = MONITOR_MESSAGE_SECTION_Y_START + 290
+TRANSIT_SECTION_HEIGHT = 340
+TRANSIT_MESSAGE_HEIGHT = 290
+TRANSIT_SECTION_Y_START = 70
+TRANSIT_MESSAGE_SECTION_Y_START = TRANSIT_SECTION_Y_START + TRANSIT_SECTION_HEIGHT
+WEATHER_SECTION_Y_START = TRANSIT_MESSAGE_SECTION_Y_START + TRANSIT_MESSAGE_HEIGHT
+WEATHER_ICON_CENTER_OFFSET = 55
 MONITOR_MESSAGE_FONT_HEIGHT = 10
-MONITOR_TRANSIT_COLUMS = 3
-MONITOR_TRANSIT_ROWS = 2
-MONITOR_THIRD_RECTANGLE_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / MONITOR_TRANSIT_COLUMS - 2 * config.MONITOR_PADDING_X)
-WEATHER_ICON_CENTRER_OFFSET = 55
+TRANSIT_COLUMNS = 3
+TRANSIT_ROWS = 2
+TRANSIT_CELL_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / TRANSIT_COLUMNS - 2 * config.MONITOR_PADDING_X)
 WEATHER_CELL_WIDTH = 195
 
 font_extralarge = load_font(config.FONT_FILENAME_BOLD, 48)
 font_large = load_font(config.FONT_FILENAME_BOLD, 30)
 font_medium = load_font(config.FONT_FILENAME_NORMAL, 28)
 font_small = load_font(config.FONT_FILENAME_NORMAL, 20)
+font_extrasmall = load_font(config.FONT_FILENAME_NORMAL, 12)
 font_update = load_font(config.FONT_FILENAME_NORMAL, 10)
 font_weather = load_font(config.FONT_FILENAME_NORMAL, 15)
 font_time = load_font(config.FONT_FILENAME_NORMAL, 64)
 
 def layout_box(index):
-    column = index // MONITOR_TRANSIT_ROWS
-    row = index % MONITOR_TRANSIT_ROWS
-    width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / MONITOR_TRANSIT_COLUMS - 2 * config.MONITOR_PADDING_X
+    column = index // TRANSIT_ROWS
+    row = index % TRANSIT_ROWS
+    width = (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / TRANSIT_COLUMNS - 2 * config.MONITOR_PADDING_X
     height = DEPARTURE_AREA_HEIGHT
-    x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / MONITOR_TRANSIT_COLUMS + config.MONITOR_PADDING_X
-    y = MONITOR_TRANSIT_SECTION_Y_START + config.MONITOR_PADDING_Y + row * (height + config.MONITOR_PADDING_Y * 2)
+    x = column * (config.MONITOR_RESOLUTION_WIDTH + config.MONITOR_PADDING_X * 2) / TRANSIT_COLUMNS + config.MONITOR_PADDING_X
+    y = TRANSIT_SECTION_Y_START + config.MONITOR_PADDING_Y + row * (height + config.MONITOR_PADDING_Y * 2)
     return Rectangle(x=x, y=y, width=width, height=height)
 
 def draw_strikethrough_text(draw, xy, text, font, fill, anchor="mm"):
@@ -103,6 +104,21 @@ def draw_strikethrough_text(draw, xy, text, font, fill, anchor="mm"):
     left, top, right, bottom = bbox
     mid_y = (top + bottom) / 2
     draw.line((left, mid_y, right, mid_y), fill=fill, width=2)
+
+def draw_rotated_text(img, text, font, fill, x, y, angle=90):
+    # Measure the text first so the temp canvas is only as big as it needs to be
+    dummy_draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bbox = dummy_draw.textbbox((0, 0), text, font=font)
+    text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+    # Draw the text horizontally onto its own transparent layer
+    text_layer = Image.new("RGBA", (text_w, text_h), (0, 0, 0, 0))
+    ImageDraw.Draw(text_layer).text((-bbox[0], -bbox[1]), text, font=font, fill=fill)
+
+    # Rotate the layer — expand=True keeps corners from clipping
+    rotated = text_layer.rotate(angle, expand=True)
+
+    img.paste(rotated, (x, y), mask=rotated)
 
 def compute_status(dep: dict) -> str:
     if dep.get("cancelled",False):
@@ -125,7 +141,6 @@ def build_transit_slots(south, north):
         status = compute_status(dep)
         slots.append(
             DepartureSlot(
-                departure=dep,
                 box=layout_box(i),
                 status=status,
                 background_color=STATUS_COLORS[status],
@@ -133,12 +148,13 @@ def build_transit_slots(south, north):
                 time_left=format_time_left(dep),
                 advertised_time=dep.get("advertised_arrival_time", "?"),
                 scheduled_time=dep.get("new_arrival_time", "?"),
-                end_station=dep.get("end_station", {}).get("short_name", "")
+                end_station=dep.get("end_station", {}).get("short_name", ""),
+                short_train=dep.get("short_train", False)
             )
         )
     return slots
 
-def fetch_relevant_trains(trains):
+def filter_relevant_trains(trains):
     relevant_train_count = {
         'south': 0,
         'north': 0
@@ -167,7 +183,7 @@ def fetch_relevant_trains(trains):
 
 def draw_transit_section(draw, departures, fetch_time):
     if departures is None:
-        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, MONITOR_TRANSIT_SECTION_Y_START + 3 * config.MONITOR_PADDING_Y), "Transit unavailable", font=font_extralarge, fill=MUTED)
+        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, TRANSIT_SECTION_Y_START + 3 * config.MONITOR_PADDING_Y), "Transit unavailable", font=font_extralarge, fill=MUTED)
         return
 
     slots = build_transit_slots(
@@ -184,20 +200,21 @@ def draw_transit_section(draw, departures, fetch_time):
 
         pad = config.MONITOR_PADDING_X // 2
         if slot.status == "delayed":
-            draw_strikethrough_text(draw,(slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad), slot.advertised_time, font=font_small, fill=slot.text_color, anchor="mt")
-            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
+            draw_strikethrough_text(draw,(slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad), slot.advertised_time, font=font_small, fill=slot.text_color, anchor="mt")
+            draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
         elif slot.status == "cancelled":
-            draw_strikethrough_text(draw, (slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
+            draw_strikethrough_text(draw, (slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
             slot.time_left = "Inställt"
         else:
-            draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 15), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  70), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  110), slot.end_station[:config.TRAIN_STATION_MAX_CHARACTERS], font=font_small, fill=slot.text_color, anchor="mt")
-
+            draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 15), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  70), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  110), slot.end_station[:config.TRAIN_STATION_MAX_CHARACTERS], font=font_small, fill=slot.text_color, anchor="mt")
+        if slot.short_train:
+            draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad + 130), "Kort tåg", font=font_extrasmall, fill=BG, anchor="mt")
     if datetime.now() - fetch_time > timedelta(minutes=2):
         draw.text(
             (config.MONITOR_RESOLUTION_WIDTH / 2, config.MONITOR_RESOLUTION_HEIGHT - config.MONITOR_PADDING_Y),
-            f"Tiderna uppdaterades: {fetch_time.strftime('%H:%M')}",
+            f"Tågtiderna uppdaterades: {fetch_time.strftime('%H:%M')}",
             font=font_update,
             fill=MUTED,
             anchor="mm"
@@ -207,14 +224,14 @@ def draw_transit_messages(draw, messages):
     if messages:
         for i, message in enumerate(messages):
             if i < config.MONITOR_MAX_MESSAGE_COUNT:
-                draw.text((config.MONITOR_PADDING_X, MONITOR_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), message, font=font_weather, fill=FG)
+                draw.text((config.MONITOR_PADDING_X, TRANSIT_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), message, font=font_weather, fill=FG)
             else:
-                draw.text((config.MONITOR_PADDING_X, MONITOR_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), "...", font=font_weather, fill=FG)
+                draw.text((config.MONITOR_PADDING_X, TRANSIT_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), "...", font=font_weather, fill=FG)
                 return
 
 def draw_weather(draw, img, weather_data):
     if weather_data is None:
-        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, MONITOR_WEATHER_SECTION_Y_START), "Fel när vädret läses in", font=font_small, fill=FG, anchor="mt")
+        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, WEATHER_SECTION_Y_START), "Fel när vädret läses in", font=font_small, fill=FG, anchor="mt")
         return
 
 
@@ -222,22 +239,27 @@ def draw_weather(draw, img, weather_data):
         (config.WEATHER_PRIMARY_LOCATION_NAME, weather_data["primary_weather"], 0),
         (config.WEATHER_SECONDARY_LOCATION_NAME, weather_data["secondary_weather"], 150)
     ]
-    offsets = [("Now", "now"), ("+3h", "3h"), ("+9h", "9h")]
+    offsets = [("Nu", "now"), ("Om 3h", "3h"), ("Om 9h", "9h")]
 
-    for location_label, location_data, start_y in locations:
+    for n, (location_label, location_data, start_y) in enumerate(locations):
+        # Draw location headers
+        draw_rotated_text(img, location_label, font_extrasmall, FG, config.MONITOR_PADDING_X, WEATHER_SECTION_Y_START + start_y, 90)
         for i, (time_label, key) in enumerate(offsets):
-            draw_weather_entry(draw, img, location_data[key], f"{location_label} {time_label}", int(i * WEATHER_CELL_WIDTH + config.MONITOR_PADDING_X), start_y)
+            draw_weather_entry(draw, img, location_data[key], int(i * WEATHER_CELL_WIDTH + config.MONITOR_PADDING_X), start_y)
+            # Draw time headers only once
+            if n == 0:
+                draw.text((int(i * WEATHER_CELL_WIDTH  + TRANSIT_CELL_WIDTH / 2 + config.MONITOR_PADDING_X), WEATHER_SECTION_Y_START - 20), time_label ,font=font_extrasmall, fill=FG, anchor="mm")
 
-def draw_weather_entry(draw, img, entry, label, x, y_offset):
+def draw_weather_entry(draw, img, entry, x, y_offset):
     day_or_night_icon = "day_icon" if datetime.now().hour < config.DAY_NIGHT_BREAKPOINT_END and datetime.now().hour > config.DAY_NIGHT_BREAKPOINT_START else "night_icon" 
     icon_file = entry["weather"][day_or_night_icon]
     icon = load_icon(os.path.splitext(icon_file)[0])
-    img.paste(icon, (x + WEATHER_ICON_CENTRER_OFFSET, MONITOR_WEATHER_SECTION_Y_START + y_offset), mask=icon)
+    img.paste(icon, (x + WEATHER_ICON_CENTER_OFFSET, WEATHER_SECTION_Y_START + y_offset), mask=icon)
 
     text_x = x + WEATHER_CELL_WIDTH / 2
-    draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 5), f"{entry['temperature']} °C", font=font_weather, fill=FG, anchor="mt")
-    draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 25), entry['weather']['name'], font=font_weather, fill=FG, anchor="mt")
-    draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_weather, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 5), f"{entry['temperature']} °C", font=font_weather, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 25), entry['weather']['name'], font=font_weather, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_weather, fill=FG, anchor="mt")
 
 def draw_time(draw):
     now = datetime.now()
@@ -272,7 +294,7 @@ def main():
 
     draw_time(draw)
     if transit_data:
-        draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
+        draw_transit_section(draw, filter_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
         draw_transit_messages(draw, transit_data.get("deviations", None))
     if weather_data:
         draw_weather(draw, img, weather_data)

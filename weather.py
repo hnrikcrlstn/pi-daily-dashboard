@@ -7,13 +7,10 @@ import logging
 import utils
 
 WEATHER_SESSION = requests.session()
-WEATHER_API_BASE_URL = "https://api.open-meteo.com/v1/forecast"
-WEATHER_API_PARAMS = "hourly=temperature_2m,weathercode,windspeed_10m&daily=weathercode,temperature_2m_max,temperature_2m_min,windspeed_10m_max&current_weather=true&windspeed_unit=ms&forecast_days=2&timezone=Europe%2FBerlin"
-WEATHER_TIME_INDEX_3H_DELAY = 3
-WEATHER_TIME_INDEX_9H_DELAY = 9
 
 def parse_weather_codes(code):
     # Translate WMO weather codes to names and matching icons
+    # None or unknown code returns error image and names
     match(code):
         case 0:
             return {
@@ -193,7 +190,7 @@ def main():
     primary_location_weather = parse_weather(
         fetch_weather(config.WEATHER_GPS_PRIMARY_LOCATION)
     )
-    time.sleep(config.API_CURTESY_WAIT_SECONDS)
+    time.sleep(config.API_COURTESY_WAIT_SECONDS)
     secondary_location_weather = parse_weather(
         fetch_weather(config.WEATHER_GPS_SECONDARY_LOCATION)
     )
@@ -207,6 +204,10 @@ def main():
 
 
 def fetch_weather(location):
+    WEATHER_API_BASE_URL = "https://api.open-meteo.com/v1/forecast"
+    WEATHER_API_PARAMS = "hourly=temperature_2m,weathercode,windspeed_10m&daily=weathercode,temperature_2m_max,temperature_2m_min,windspeed_10m_max&current_weather=true&windspeed_unit=ms&forecast_days=2&timezone=Europe%2FBerlin"
+    # API-reference: https://open-meteo.com/
+
     try:
         weather = WEATHER_SESSION.get(f"{WEATHER_API_BASE_URL}?{location}&{WEATHER_API_PARAMS}", headers={"Accept": "application/json"}, timeout=20)
         weather.raise_for_status()
@@ -222,8 +223,10 @@ def parse_weather(weather):
 
     now = datetime.now()
 
-    index_3_hours = now.hour + WEATHER_TIME_INDEX_3H_DELAY
-    index_9_hours = now.hour + WEATHER_TIME_INDEX_9H_DELAY
+    time_index_3h_offset = 3
+    time_index_9h_offset = 9
+    index_3_hours = now.hour + time_index_3h_offset
+    index_9_hours = now.hour + time_index_9h_offset
 
     parsed_weather = {
         "now": {

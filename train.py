@@ -4,7 +4,6 @@ import requests
 import logging
 from datetime import datetime
 import time
-import json
 
 def main():
     fetch_train_announcements(requests.Session()) # For testing, manually run fetch outside of loop
