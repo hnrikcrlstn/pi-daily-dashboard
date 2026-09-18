@@ -116,7 +116,7 @@ def parse_trains():
     parsed_trains = []
     current_messages = []
 
-    if cached_response:
+    if not cached_response:
         logging.error("No cached response found, exiting loop")
         return
     trains = cached_response['data']['RESPONSE']['RESULT'][0]['TrainAnnouncement']

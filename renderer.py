@@ -271,9 +271,11 @@ def main():
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
 
     draw_time(draw)
-    draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
-    draw_transit_messages(draw, transit_data.get("deviations", None))
-    draw_weather(draw, img, weather_data)
+    if transit_data:
+        draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
+        draw_transit_messages(draw, transit_data.get("deviations", None))
+    if weather_data:
+        draw_weather(draw, img, weather_data)
 
     img.save(config.OUTPUT_IMAGE_FILENAME)
     print(f"Rendered to {config.OUTPUT_IMAGE_FILENAME} at {datetime.now(timezone.utc).isoformat()}")
