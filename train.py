@@ -1,6 +1,7 @@
 import config
 import utils
 import requests
+import logging
 from datetime import datetime
 import time
 import json
@@ -84,7 +85,7 @@ def fetch_train_announcements(trafik_session):
     except requests.exceptions.RequestException as e:
         logging.error(f"API error from fetch_train_announcements(): {e}")
     except Exception:
-        logging.exception(Exception)
+        logging.exception("Unexpected error")
 
 def confirm_station_names(trains):
     station_dict = {}
@@ -94,6 +95,8 @@ def confirm_station_names(trains):
         station_dict[train["ToLocation"][0]["LocationName"]] = True
 
     cached_station_names = utils.load_cache(config.TRAIN_STATION_FILENAME)
+    if cached_station_names is None:
+        cached_station_names = {}
 
     for station in station_dict.keys():
         if station not in cached_station_names:
@@ -109,12 +112,10 @@ def confirm_station_names(trains):
 
 def parse_trains():
     TRAIN_NUMBER_INDEX = 1
-    cached_response = {}
+    cached_response = utils.load_cache(config.TRAIN_CACHE_FILENAME)
     parsed_trains = []
     current_messages = []
 
-    with open(config.TRAIN_CACHE_FILENAME, 'r') as f:
-        cached_response = json.load(f)
     if cached_response == {}:
         logging.error("No cached response found, exiting loop")
     trains = cached_response['data']['RESPONSE']['RESULT'][0]['TrainAnnouncement']
@@ -158,7 +159,7 @@ def parse_trains():
                 "cancelled": train["Canceled"],
                 "short_train": short_train,
                 "delayed": delayed,
-                "deviation": f"{new_arrival_time} Linje {train_number} - {current_deviations}"
+                "deviation": f"{new_arrival_time} Linje {train_number} - {', '.join(current_deviations)}"
             }
         )
         if len(current_deviations):

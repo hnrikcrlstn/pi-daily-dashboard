@@ -25,19 +25,19 @@ def parse_weather_codes(code):
             return {
                 "name": "Lätt molnigt",
                 "day_icon": "cloudy-1-day.png",
-                "nigth_icon": "cloudy-1-night.png"
+                "night_icon": "cloudy-1-night.png"
             }
         case 2:
             return {
                 "name": "Molnigt",
                 "day_icon": "cloudy-2-day.png",
-                "nigth_icon": "cloudy-2-night.png"
+                "night_icon": "cloudy-2-night.png"
             }
         case 3:
             return {
                 "name": "Kraftigt molnigt",
                 "day_icon": "cloudy-3-day.png",
-                "nigth_icon": "cloudy-3-night.png"
+                "night_icon": "cloudy-3-night.png"
             }
         case 45:
             return {
@@ -220,7 +220,7 @@ def fetch_weather(location):
 
 def parse_weather(weather):
     if not weather:
-        return False
+        return None
 
     now = datetime.now()
 

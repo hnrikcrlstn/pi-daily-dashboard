@@ -77,8 +77,8 @@ MONITOR_MESSAGE_FONT_HEIGHT = 10
 MONITOR_TRANSIT_COLUMS = 3
 MONITOR_TRANSIT_ROWS = 2
 MONITOR_THIRD_RECTANGLE_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / MONITOR_TRANSIT_COLUMS - 2 * config.MONITOR_PADDING_X)
-WEATHER_ICON_CENTRER_OFFSET = 45
-WEATHER_CELL_WIDTH = 210
+WEATHER_ICON_CENTRER_OFFSET = 55
+WEATHER_CELL_WIDTH = 195
 
 font_extralarge = load_font(config.FONT_FILENAME_BOLD, 48)
 font_large = load_font(config.FONT_FILENAME_BOLD, 30)
@@ -165,9 +165,9 @@ def fetch_relevant_trains(trains):
                 enough_trains_collected = True
     return relevant_train_data
 
-def draw_transit_section(draw, departures, fetch_time, x, y):
+def draw_transit_section(draw, departures, fetch_time):
     if departures is None:
-        draw.text((x, y), "Transit unavailable", font=font_medium, fill=MUTED)
+        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, MONITOR_TRANSIT_SECTION_Y_START + 3 * config.MONITOR_PADDING_Y), "Transit unavailable", font=font_extralarge, fill=MUTED)
         return
 
     slots = build_transit_slots(
@@ -192,7 +192,7 @@ def draw_transit_section(draw, departures, fetch_time, x, y):
         else:
             draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + 2 * pad + 15), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
         draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  70), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  110), slot.end_station, font=font_small, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + MONITOR_THIRD_RECTANGLE_WIDTH / 2, slot.box.y + pad +  110), slot.end_station[:config.TRAIN_STATION_MAX_CHARACTERS], font=font_small, fill=slot.text_color, anchor="mt")
 
     if datetime.now() - fetch_time > timedelta(minutes=2):
         draw.text(
@@ -234,7 +234,7 @@ def draw_weather_entry(draw, img, entry, label, x, y_offset):
     icon = load_icon(os.path.splitext(icon_file)[0])
     img.paste(icon, (x + WEATHER_ICON_CENTRER_OFFSET, MONITOR_WEATHER_SECTION_Y_START + y_offset), mask=icon)
 
-    text_x = x + MONITOR_THIRD_RECTANGLE_WIDTH / 2
+    text_x = x + WEATHER_CELL_WIDTH / 2
     draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 5), f"{entry['temperature']} °C", font=font_weather, fill=FG, anchor="mt")
     draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 25), entry['weather']['name'], font=font_weather, fill=FG, anchor="mt")
     draw.text((text_x, y_offset + MONITOR_WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_weather, fill=FG, anchor="mt")
@@ -271,7 +271,7 @@ def main():
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
 
     draw_time(draw)
-    draw_transit_section(draw, fetch_relevant_trains(transit_data["data"]),datetime.fromisoformat(transit_data["parsed_at"]),x=40,y=40)
+    draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data["parsed_at"]))
     draw_transit_messages(draw, transit_data.get("deviations", None))
     draw_weather(draw, img, weather_data)
 

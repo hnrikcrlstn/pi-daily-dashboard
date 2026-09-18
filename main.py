@@ -7,14 +7,14 @@ from logging.handlers import TimedRotatingFileHandler
 import logging
 import os
 
-os.makedirs("logs", exist_ok=True)
-handler = TimedRotatingFileHandler("logs/dashboard.log", when="midnight", backupCount=7)
-handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-
-logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
 
 if __name__ == "__main__":
-    
+    os.makedirs("logs", exist_ok=True)
+    handler = TimedRotatingFileHandler("logs/dashboard.log", when="midnight", backupCount=7)
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+
+    logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
+
     train.main()
     weather.main()
     renderer.main()

@@ -11,7 +11,7 @@ def atomic_write(path, data):
 
 def load_cache(path):
     if not os.path.exists(path):
-        atomic_write(path, {})
+        return None
     try:
         with open(path, "r") as f:
             return json.load(f)
