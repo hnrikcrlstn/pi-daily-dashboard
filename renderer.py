@@ -271,7 +271,7 @@ def main():
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
 
     draw_time(draw)
-    draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data["parsed_at"]))
+    draw_transit_section(draw, fetch_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
     draw_transit_messages(draw, transit_data.get("deviations", None))
     draw_weather(draw, img, weather_data)
 

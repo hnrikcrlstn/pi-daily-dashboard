@@ -183,13 +183,11 @@ def parse_weather_codes(code):
                 "day_icon": "thunderstorms.png",
                 "night_icon": "thunderstorms.png"
             }
-        case None:
-            return {
-                "name": "Väderkod hittades inte",
-                "day_icon": "tornado.png",
-                "night_icon": "tornado.png"
-            }
-    return None
+    return {
+        "name": "Väderkod hittades inte",
+        "day_icon": "tornado.png",
+        "night_icon": "tornado.png"
+    }
 
 def main():
     primary_location_weather = parse_weather(
@@ -216,7 +214,7 @@ def fetch_weather(location):
     except requests.exceptions.RequestException as e:
         logging.error(f"API error from fetch_weather(): {e}")
     except Exception:
-        logging.exception(Exception)
+        logging.exception("Unexpected error from fetch_weather()")
 
 def parse_weather(weather):
     if not weather:

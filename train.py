@@ -43,7 +43,7 @@ def fetch_station_name(station_code):
     except requests.exceptions.RequestException as e:
         logging.error(f"API error from fetch_station_name(): {e}")
     except Exception:
-        logging.exception(Exception)
+        logging.exception("Unexpected error when fetching station names")
 
 def fetch_train_announcements(trafik_session):
     xml_request = (
@@ -85,7 +85,7 @@ def fetch_train_announcements(trafik_session):
     except requests.exceptions.RequestException as e:
         logging.error(f"API error from fetch_train_announcements(): {e}")
     except Exception:
-        logging.exception("Unexpected error")
+        logging.exception("Unexpected error when fetching train announcements")
 
 def confirm_station_names(trains):
     station_dict = {}
@@ -116,8 +116,9 @@ def parse_trains():
     parsed_trains = []
     current_messages = []
 
-    if cached_response == {}:
+    if cached_response:
         logging.error("No cached response found, exiting loop")
+        return
     trains = cached_response['data']['RESPONSE']['RESULT'][0]['TrainAnnouncement']
 
     station_names = confirm_station_names(trains)
