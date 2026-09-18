@@ -80,17 +80,102 @@ Key constants in [`config.py`](config.py) you may want to adjust:
 | `MONITOR_BPP` | `16` | Framebuffer colour depth (16 or 32) |
 | `MONITOR_FB_PATH` | `/dev/fb0` | Path to the framebuffer device |
 
-## Running
-
+### Running
+`/etc/systemd/system/transit-poll.service`
 ```bash
-# Fetch and parse train data once (useful for testing)
-python train.py
+[Unit]
+Description=Poll transit departures
+Wants=network-online.target
+After=network-online.target
 
-# Render the display once from the current cache
-python renderer.py
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/dashboard
+ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/transit_poll.py
+Restart=always
+RestartSec=5
 
-# Run the full dashboard (orchestrator — work in progress)
-python main.py
+[Install]
+WantedBy=multi-user.target
+```
+
+`/etc/systemd/system/weather-poll.service`
+```bash
+[Unit]
+Description=Fetch weather data
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/dashboard
+ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/weather_poll.py
+```
+
+`/etc/systemd/system/weather-poll.timer`
+```bash
+[Unit]
+Description=Fetch weather data
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/dashboard
+ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/weather_poll.py
+```
+
+`/etc/systemd/system/dashboard-render.service`
+```bash
+[Unit]
+Description=Render dashboard frame and push to framebuffer
+After=disable-vtcon.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/dashboard
+ExecStart=/home/pi/dashboard/venv/bin/python /home/pi/dashboard/render.py
+```
+
+`/etc/systemd/system/dashboard-render.timer`
+```bash
+[Unit]
+Description=Re-render dashboard every 15 seconds
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=15s
+
+[Install]
+WantedBy=timers.target
+```
+
+### Activate the services
+```bash
+sudo systemctl daemon-reload
+
+sudo systemctl enable --now transit-poll.service
+sudo systemctl enable --now weather-poll.timer
+sudo systemctl enable --now dashboard-render.timer
+```
+### Verify services
+```bash
+# confirm all three are active/running
+systemctl status transit-poll.service weather-poll.timer dashboard-render.timer
+
+# see when weather/render timers last fired and next will
+systemctl list-timers weather-poll.timer dashboard-render.timer
+
+# watch transit's live log
+journalctl -u transit-poll.service -f
+
+# confirm a manual weather/render run works before waiting for the timer
+sudo systemctl start weather-poll.service
+sudo systemctl start dashboard-render.service
 ```
 
 ## Cache files
