@@ -249,7 +249,6 @@ def draw_headlines(draw, headlines):
         for headline in headlines:
             lines = wordwrap_text(draw, headline, font_normal)
             block_height = len(lines) * font_normal.size + font_subheader.size
-            print(y)
             if y + block_height > WEATHER_SECTION_Y_START - font_normal.size:
                 break
             for line in lines:
@@ -335,7 +334,9 @@ def main():
 
     weather_data = utils.load_cache(config.WEATHER_CACHE_FILENAME)
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
-    messages = transit_data.get("deviations", [])
+    messages = []
+    if transit_data:
+        messages = transit_data.get("deviations", [])
 
     draw_time(draw)
     if transit_data:
