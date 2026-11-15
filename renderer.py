@@ -6,7 +6,8 @@ from functools import lru_cache
 from dataclasses import dataclass
 import math
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
+import time
 
 @dataclass
 class Rectangle:
@@ -34,7 +35,8 @@ class DepartureSlot:
     scheduled_time: str
     end_station: str
     advertised_time: str
-    short_train: bool
+    short_train: boolnn
+    delay_correction_y: int
 
 @lru_cache(maxsize=None)
 def load_icon(icon):
@@ -49,7 +51,7 @@ def load_font(name, size):
     try:
         return ImageFont.truetype(path, size)
     except OSError:
-        return ImageFont.load_default()
+        return ImageFont.load_default(size)
 
 BG = (0, 0, 0)
 FG = (235, 235, 235)
@@ -57,11 +59,18 @@ MUTED = (140, 140, 145)
 ALERT = (241, 221, 56)
 CANCELLED = (200, 60, 60)
 
-STATUS_COLORS = {
-    "on_time": FG,
+STATUS_COLORS_BACKGROUND = {
+    "on_time": BG,
     "delayed": ALERT,
     "cancelled": CANCELLED
 }
+
+STATUS_COLORS_TEXT = {
+    "on_time": FG,
+    "delayed": BG,
+    "cancelled": BG
+}
+
 FONT_DIR = config.FONT_DIR
 ICON_DIR = "icons"
 ICON_SIZE = 80
@@ -69,25 +78,29 @@ ICON_SIZE = 80
 DEPARTURE_AREA_HEIGHT = 150
 DEPARTURE_AREA_BORDER_RADIUS = 20
 TRANSIT_SECTION_HEIGHT = 340
-TRANSIT_MESSAGE_HEIGHT = 290
+MESSAGE_AREA_HEIGHT = 290
+MESSAGE_HEADLINES_GAP = 5
 TRANSIT_SECTION_Y_START = 70
-TRANSIT_MESSAGE_SECTION_Y_START = TRANSIT_SECTION_Y_START + TRANSIT_SECTION_HEIGHT
-WEATHER_SECTION_Y_START = TRANSIT_MESSAGE_SECTION_Y_START + TRANSIT_MESSAGE_HEIGHT
+DEPARTURE_DELAY_CORRECTION_Y = -17
+TRAIN_CUTOFF_TIME = -60
+MESSAGE_SECTION_Y_START = TRANSIT_SECTION_Y_START + TRANSIT_SECTION_HEIGHT
+WEATHER_SECTION_Y_START = MESSAGE_SECTION_Y_START + MESSAGE_AREA_HEIGHT
 WEATHER_ICON_CENTER_OFFSET = 55
-MONITOR_MESSAGE_FONT_HEIGHT = 10
 TRANSIT_COLUMNS = 3
 TRANSIT_ROWS = 2
 TRANSIT_CELL_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X * 4) / TRANSIT_COLUMNS - 2 * config.MONITOR_PADDING_X)
 WEATHER_CELL_WIDTH = 195
+MAX_WIDTH = int(config.MONITOR_RESOLUTION_WIDTH - 2 * config.MONITOR_PADDING_X)
 
-font_extralarge = load_font(config.FONT_FILENAME_BOLD, 48)
-font_large = load_font(config.FONT_FILENAME_BOLD, 30)
-font_medium = load_font(config.FONT_FILENAME_NORMAL, 28)
+font_header_large = load_font(config.FONT_FILENAME_NORMAL, 64)
+font_header_small = load_font(config.FONT_FILENAME_NORMAL, 28)
+font_subheader = load_font(config.FONT_FILENAME_BOLD, 20)
+font_time_left = load_font(config.FONT_FILENAME_BOLD, 40)
+font_departure_time = load_font(config.FONT_FILENAME_BOLD, 30)
 font_small = load_font(config.FONT_FILENAME_NORMAL, 20)
 font_extrasmall = load_font(config.FONT_FILENAME_NORMAL, 12)
-font_update = load_font(config.FONT_FILENAME_NORMAL, 10)
-font_weather = load_font(config.FONT_FILENAME_NORMAL, 15)
-font_time = load_font(config.FONT_FILENAME_NORMAL, 64)
+font_normal = load_font(config.FONT_FILENAME_NORMAL, 15)
+font_footer = load_font(config.FONT_FILENAME_NORMAL, 10)
 
 def layout_box(index):
     column = index // TRANSIT_ROWS
@@ -129,10 +142,10 @@ def compute_status(dep: dict) -> str:
 
 def format_time_left(dep: dict) -> str:
     arrival = datetime.fromisoformat(str(dep["new_arrival_time_timestamp"]))
-    delta_min = math.floor(
+    delta_minutes = math.floor(
         (arrival - datetime.now(arrival.tzinfo)).total_seconds() / 60
     )
-    return "Nu" if delta_min < 1 else f"{delta_min + 1} min"
+    return "Nu" if delta_minutes < 0 else f"{delta_minutes + 1} min"
 
 def build_transit_slots(south, north):
     combined = list(south[:config.RELEVANT_TRAIN_COUNT_SOUTH]) + list(north[:config.RELEVANT_TRAIN_COUNT_NORTH])
@@ -143,13 +156,14 @@ def build_transit_slots(south, north):
             DepartureSlot(
                 box=layout_box(i),
                 status=status,
-                background_color=STATUS_COLORS[status],
-                text_color=BG,
+                background_color=STATUS_COLORS_BACKGROUND[status],
+                text_color=STATUS_COLORS_TEXT[status],
                 time_left=format_time_left(dep),
                 advertised_time=dep.get("advertised_arrival_time", "?"),
                 scheduled_time=dep.get("new_arrival_time", "?"),
                 end_station=dep.get("end_station", {}).get("short_name", ""),
-                short_train=dep.get("short_train", False)
+                short_train=dep.get("short_train", False),
+                delay_correction_y= DEPARTURE_DELAY_CORRECTION_Y if status == "delayed" else 0
             )
         )
     return slots
@@ -169,7 +183,7 @@ def filter_relevant_trains(trains):
         now = datetime.now(arrival_time.tzinfo)
         time_delta = arrival_time - now
 
-        if not enough_trains_collected and time_delta.total_seconds() > 0:
+        if not enough_trains_collected and time_delta.total_seconds() > TRAIN_CUTOFF_TIME:
             if train["northbound"]:
                 if relevant_train_count["north"] < config.RELEVANT_TRAIN_COUNT_NORTH and train["end_station"]["code"] == "U":
                     relevant_train_count["north"] += 1
@@ -183,7 +197,7 @@ def filter_relevant_trains(trains):
 
 def draw_transit_section(draw, departures, fetch_time):
     if departures is None:
-        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, TRANSIT_SECTION_Y_START + 3 * config.MONITOR_PADDING_Y), "Transit unavailable", font=font_extralarge, fill=MUTED)
+        draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, TRANSIT_SECTION_Y_START + 3 * config.MONITOR_PADDING_Y), "Transit unavailable", font=font_time_left, fill=MUTED)
         return
 
     slots = build_transit_slots(
@@ -199,23 +213,22 @@ def draw_transit_section(draw, departures, fetch_time):
         )
 
         pad = config.MONITOR_PADDING_X // 2
-        if slot.status == "delayed":
-            draw_strikethrough_text(draw,(slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad), slot.advertised_time, font=font_small, fill=slot.text_color, anchor="mt")
-            draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
-        elif slot.status == "cancelled":
-            draw_strikethrough_text(draw, (slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
-            slot.time_left = "Inställt"
-        else:
-            draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 15), slot.scheduled_time, font=font_extralarge, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  70), slot.time_left, font=font_large, fill=slot.text_color, anchor="mt")
-        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  110), slot.end_station[:config.TRAIN_STATION_MAX_CHARACTERS], font=font_small, fill=slot.text_color, anchor="mt")
+        if slot.status == "cancelled":
+            draw_strikethrough_text(draw, (slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 25), slot.scheduled_time, font=font_time_left, fill=slot.text_color, anchor="mt")
+            slot.time_left = ""
+            slot.scheduled_time = "Inställt"
+        elif slot.status == "delayed":
+            draw_strikethrough_text(draw,(slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 10 * pad), slot.advertised_time, font=font_small, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + 2 * pad + 15 + slot.delay_correction_y), slot.time_left, font=font_time_left, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  70 + 0.25 * slot.delay_correction_y), slot.scheduled_time, font=font_departure_time, fill=slot.text_color, anchor="mt")
+        draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad +  110 + 0.5 * slot.delay_correction_y), slot.end_station[:config.TRAIN_STATION_MAX_CHARACTERS], font=font_small, fill=slot.text_color, anchor="mt")
         if slot.short_train:
             draw.text((slot.box.x + TRANSIT_CELL_WIDTH / 2, slot.box.y + pad + 130), "Kort tåg", font=font_extrasmall, fill=BG, anchor="mt")
     if datetime.now() - fetch_time > timedelta(minutes=2):
         draw.text(
             (config.MONITOR_RESOLUTION_WIDTH / 2, config.MONITOR_RESOLUTION_HEIGHT - config.MONITOR_PADDING_Y),
             f"Tågtiderna uppdaterades: {fetch_time.strftime('%H:%M')}",
-            font=font_update,
+            font=font_footer,
             fill=MUTED,
             anchor="mm"
         )
@@ -224,10 +237,41 @@ def draw_transit_messages(draw, messages):
     if messages:
         for i, message in enumerate(messages):
             if i < config.MONITOR_MAX_MESSAGE_COUNT:
-                draw.text((config.MONITOR_PADDING_X, TRANSIT_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), message, font=font_weather, fill=FG)
+                draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START + 1.6 * i * font_normal.size), message, font=font_normal, fill=FG)
             else:
-                draw.text((config.MONITOR_PADDING_X, TRANSIT_MESSAGE_SECTION_Y_START + 1.6 * i * MONITOR_MESSAGE_FONT_HEIGHT), "...", font=font_weather, fill=FG)
+                draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START + 1.6 * i * font_normal.size), "...", font=font_normal, fill=FG)
                 return
+
+def draw_headlines(draw, headlines):
+    if headlines:
+        draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START), config.NEWS_HEADER_TEXT, font=font_subheader, fill=FG)
+        y = MESSAGE_SECTION_Y_START + font_subheader.size
+        for headline in headlines:
+            lines = wordwrap_text(draw, headline, font_normal)
+            block_height = len(lines) * font_normal.size + font_subheader.size
+            print(y)
+            if y + block_height > WEATHER_SECTION_Y_START - font_normal.size:
+                break
+            for line in lines:
+                draw.text((config.MONITOR_PADDING_X, y), line, font=font_normal, fill=FG)
+                y += font_normal.size
+            y += MESSAGE_HEADLINES_GAP
+
+def wordwrap_text(draw, text, font=font_normal):
+    if text:
+        printable_lines = []
+        current_line = ""
+        for word in text.split():
+            lenght_test = f"{current_line} {word}".strip()
+            if draw.textlength(lenght_test, font=font) <= MAX_WIDTH:
+                current_line = lenght_test
+            else:
+                if current_line:
+                    printable_lines.append(current_line)
+                current_line = word
+        if current_line:
+            printable_lines.append(current_line)
+        return printable_lines
 
 def draw_weather(draw, img, weather_data):
     if weather_data is None:
@@ -257,30 +301,30 @@ def draw_weather_entry(draw, img, entry, x, y_offset):
     img.paste(icon, (x + WEATHER_ICON_CENTER_OFFSET, WEATHER_SECTION_Y_START + y_offset), mask=icon)
 
     text_x = x + WEATHER_CELL_WIDTH / 2
-    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 5), f"{entry['temperature']} °C", font=font_weather, fill=FG, anchor="mt")
-    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 25), entry['weather']['name'], font=font_weather, fill=FG, anchor="mt")
-    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_weather, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 5), f"{entry['temperature']} °C", font=font_normal, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 25), entry['weather']['name'], font=font_normal, fill=FG, anchor="mt")
+    draw.text((text_x, y_offset + WEATHER_SECTION_Y_START + ICON_SIZE + 45), f"{entry["wind_speed"]} m/s", font=font_normal, fill=FG, anchor="mt")
 
 def draw_time(draw):
     now = datetime.now()
     draw.text(
         (config.MONITOR_RESOLUTION_WIDTH / 2, config.MONITOR_PADDING_Y + 30),
         datetime.strftime(now,"%H:%M"),
-        font=font_time,
+        font=font_header_large,
         fill=FG,
         anchor="mm"
     )
     draw.text(
         (config.MONITOR_PADDING_X, config.MONITOR_PADDING_Y + 30),
         datetime.strftime(now, "Vecka %-U"),
-        font= font_medium,
+        font= font_header_small,
         fill=FG,
         anchor="lm"
     )
     draw.text(
         (config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDING_X, config.MONITOR_PADDING_Y + 30),
         datetime.strftime(now, "%-d/%-m"),
-        font= font_medium,
+        font= font_header_small,
         fill=FG,
         anchor="rm"
     )
@@ -291,16 +335,19 @@ def main():
 
     weather_data = utils.load_cache(config.WEATHER_CACHE_FILENAME)
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
+    messages = transit_data.get("deviations", [])
 
     draw_time(draw)
     if transit_data:
         draw_transit_section(draw, filter_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
-        draw_transit_messages(draw, transit_data.get("deviations", None))
+        if len(messages) == 0:
+            draw_headlines(draw, utils.load_cache(config.NEWS_CACHE_FILENAME)["headlines"])
+        else:
+            draw_transit_messages(draw, messages)
     if weather_data:
         draw_weather(draw, img, weather_data)
 
     img.save(config.OUTPUT_IMAGE_FILENAME)
-    print(f"Rendered to {config.OUTPUT_IMAGE_FILENAME} at {datetime.now(timezone.utc).isoformat()}")
 
     push_to_fb()
 
@@ -324,4 +371,6 @@ def push_to_fb():
         f.write(raw)
 
 if __name__ == "__main__":
-    main()
+    while True:
+        main()
+        time.sleep(config.DRAW_IMAGE_UPDATE_FREQUENCY_SECONDS)

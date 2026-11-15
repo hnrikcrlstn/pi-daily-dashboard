@@ -8,14 +8,19 @@ import time
 def main():
     fetch_train_announcements(requests.Session()) # For testing, manually run fetch outside of loop
     parse_trains()
-    #fetch_train_data_loop()
+    fetch_train_data_loop()
 
 def fetch_train_data_loop():
     SESSION = requests.Session()
+    LOW_INTENSE_START_TIME = datetime.strptime(config.LOW_INTENSE_START_TIME, "%H:%M").time()
+    LOW_INTENSE_STOP_TIME = datetime.strptime(config.LOW_INTENSE_END_TIME, "%H:%M").time()
     while True:
         fetch_train_announcements(SESSION)
         parse_trains()
-        time.sleep(config.TRAIN_SLEEP_DURATION)
+        if utils.is_low_intense(datetime.now().time(),LOW_INTENSE_START_TIME, LOW_INTENSE_STOP_TIME):
+            time.sleep(config.LOW_INTENSE_API_CALLS_FREQUENCY_MINUTES * 60)
+        else:
+            time.sleep(config.TRAIN_SLEEP_DURATION)
 
 def fetch_station_name(station_code):
     xml_request = (
@@ -29,7 +34,7 @@ def fetch_station_name(station_code):
         "</REQUEST>"
     )
 
-    time.sleep(config.API_CURTESY_WAIT_SECONDS)
+    time.sleep(config.API_COURTESY_WAIT_SECONDS)
     try:
         station_data = requests.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         station_data.raise_for_status()
@@ -66,7 +71,6 @@ def fetch_train_announcements(trafik_session):
         "<INCLUDE>TimeAtLocation</INCLUDE>"
         "<INCLUDE>AdvertisedTimeAtLocation</INCLUDE>"
         "<INCLUDE>ToLocation</INCLUDE>"
-        "<INCLUDE>OtherInformation</INCLUDE>"
         "<INCLUDE>Canceled</INCLUDE>"
         "<INCLUDE>Deviation</INCLUDE>"
         "</QUERY>"
@@ -126,10 +130,10 @@ def parse_trains():
         advertised_arrival_time_timestamp = datetime.fromisoformat(str(train["AdvertisedTimeAtLocation"]))
         new_arrival_time_timestamp = advertised_arrival_time_timestamp
         delayed = False
-        estimated = train.get("EstimatedTimeAtLocation", train["AdvertisedTimeAtLocation"])
-        if train["AdvertisedTimeAtLocation"] != estimated:
+        estimated_time = train.get("EstimatedTimeAtLocation", train["AdvertisedTimeAtLocation"])
+        if train["AdvertisedTimeAtLocation"] != estimated_time:
             delayed = True
-            new_arrival_time_timestamp = datetime.fromisoformat(str(estimated))
+            new_arrival_time_timestamp = datetime.fromisoformat(str(estimated_time))
         northbound_train = train['ToLocation'][0]['LocationName'] in config.NORTHBOUND_STATIONS
         train_number = train['ProductInformation'][TRAIN_NUMBER_INDEX]['Description']
         if northbound_train:

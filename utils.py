@@ -17,3 +17,9 @@ def load_cache(path):
             return json.load(f)
     except (json.JSONDecodeError, OSError):
         return None
+
+def is_low_intense(now, start, stop):
+    if start < stop:
+        return start <= now < stop
+    else:
+        return now >= start or now < stop
