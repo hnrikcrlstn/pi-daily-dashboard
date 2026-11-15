@@ -35,7 +35,7 @@ class DepartureSlot:
     scheduled_time: str
     end_station: str
     advertised_time: str
-    short_train: boolnn
+    short_train: bool
     delay_correction_y: int
 
 @lru_cache(maxsize=None)
