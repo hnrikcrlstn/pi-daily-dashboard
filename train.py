@@ -1,4 +1,7 @@
 import config
+import os
+from logging.handlers import TimedRotatingFileHandler
+import logging
 import utils
 import requests
 import logging
@@ -6,7 +9,12 @@ from datetime import datetime
 import time
 
 def main():
-    fetch_train_announcements(requests.Session()) # For testing, manually run fetch outside of loop
+    os.makedirs("logs", exist_ok=True)
+    handler = TimedRotatingFileHandler(f"{config.PROJECT_FOLDER}/logs/dashboard-trains.log", when="midnight", backupCount=7)
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
+
+    fetch_train_announcements(requests.Session())
     parse_trains()
     fetch_train_data_loop()
 
@@ -39,11 +47,12 @@ def fetch_station_name(station_code):
         station_data = requests.post(config.TRAFIKVERKET_BASE_URL, headers={'Content-Type': 'application/xml'}, data=xml_request, timeout=(config.TRAIN_SLEEP_DURATION / 2))
         station_data.raise_for_status()
 
-        return {
-                "code": station_code,
-                "name": station_data.json()["RESPONSE"]["RESULT"][0]["TrainStation"][0]["AdvertisedLocationName"],
-                "short_name": station_data.json()["RESPONSE"]["RESULT"][0]["TrainStation"][0]["AdvertisedShortLocationName"]
-            }
+        if station_data.json():
+            return {
+                    "code": station_code,
+                    "name": station_data.json()["RESPONSE"]["RESULT"][0]["TrainStation"][0]["AdvertisedLocationName"],
+                    "short_name": station_data.json()["RESPONSE"]["RESULT"][0]["TrainStation"][0]["AdvertisedShortLocationName"]
+                }
     except requests.exceptions.RequestException as e:
         logging.error(f"API error from fetch_station_name(): {e}")
     except Exception:
@@ -149,7 +158,7 @@ def parse_trains():
             for deviation in train["Deviation"]:
                 if deviation["Description"] not in config.UNIMPORTANT_MESSAGES:
                     current_deviations.append(str(deviation["Description"]))
-                if deviation["Description"] in config.SHORT_TRAIN_MARK:
+                if config.SHORT_TRAIN_MARK in deviation["Description"]:
                     short_train = True
         parsed_trains.append(
             {

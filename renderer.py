@@ -6,8 +6,11 @@ from functools import lru_cache
 from dataclasses import dataclass
 import math
 import os
+from logging.handlers import TimedRotatingFileHandler
+import logging
 from datetime import datetime, timedelta
 import time
+import weather
 
 @dataclass
 class Rectangle:
@@ -161,7 +164,7 @@ def build_transit_slots(south, north):
                 time_left=format_time_left(dep),
                 advertised_time=dep.get("advertised_arrival_time", "?"),
                 scheduled_time=dep.get("new_arrival_time", "?"),
-                end_station=dep.get("end_station", {}).get("short_name", ""),
+                end_station=(dep.get("end_station") or {}).get("short_name", ""),
                 short_train=dep.get("short_train", False),
                 delay_correction_y= DEPARTURE_DELAY_CORRECTION_Y if status == "delayed" else 0
             )
@@ -185,7 +188,7 @@ def filter_relevant_trains(trains):
 
         if not enough_trains_collected and time_delta.total_seconds() > TRAIN_CUTOFF_TIME:
             if train["northbound"]:
-                if relevant_train_count["north"] < config.RELEVANT_TRAIN_COUNT_NORTH and train["end_station"]["code"] == "U":
+                if relevant_train_count["north"] < config.RELEVANT_TRAIN_COUNT_NORTH and (train.get("end_station") or {}).get("code") == "U":
                     relevant_train_count["north"] += 1
                     relevant_train_data["north"].append(train)
             elif relevant_train_count["south"] < config.RELEVANT_TRAIN_COUNT_SOUTH:
@@ -233,19 +236,10 @@ def draw_transit_section(draw, departures, fetch_time):
             anchor="mm"
         )
 
-def draw_transit_messages(draw, messages):
-    if messages:
-        for i, message in enumerate(messages):
-            if i < config.MONITOR_MAX_MESSAGE_COUNT:
-                draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START + 1.6 * i * font_normal.size), message, font=font_normal, fill=FG)
-            else:
-                draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START + 1.6 * i * font_normal.size), "...", font=font_normal, fill=FG)
-                return
-
-def draw_headlines(draw, headlines):
+def draw_messages(draw, headlines, header_text):
     if headlines:
-        draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START), config.NEWS_HEADER_TEXT, font=font_subheader, fill=FG)
-        y = MESSAGE_SECTION_Y_START + font_subheader.size
+        draw.text((config.MONITOR_PADDING_X, MESSAGE_SECTION_Y_START), header_text, font=font_subheader, fill=FG)
+        y = MESSAGE_SECTION_Y_START + font_subheader.size + MESSAGE_HEADLINES_GAP
         for headline in headlines:
             lines = wordwrap_text(draw, headline, font_normal)
             block_height = len(lines) * font_normal.size + font_subheader.size
@@ -273,8 +267,9 @@ def wordwrap_text(draw, text, font=font_normal):
         return printable_lines
 
 def draw_weather(draw, img, weather_data):
-    if weather_data is None:
+    if weather_data is None or weather_data["primary_weather"] is None or weather_data["secondary_weather"] is None:
         draw.text((config.MONITOR_RESOLUTION_WIDTH / 2, WEATHER_SECTION_Y_START), "Fel när vädret läses in", font=font_small, fill=FG, anchor="mt")
+        weather.main()
         return
 
 
@@ -315,7 +310,7 @@ def draw_time(draw):
     )
     draw.text(
         (config.MONITOR_PADDING_X, config.MONITOR_PADDING_Y + 30),
-        datetime.strftime(now, "Vecka %-U"),
+        datetime.strftime(now, "Vecka %-V"),
         font= font_header_small,
         fill=FG,
         anchor="lm"
@@ -334,17 +329,19 @@ def main():
 
     weather_data = utils.load_cache(config.WEATHER_CACHE_FILENAME)
     transit_data = utils.load_cache(config.TRAIN_PARSED_CACHE_FILENAME)
-    messages = []
+    news = utils.load_cache(config.NEWS_CACHE_FILENAME)
     if transit_data:
-        messages = transit_data.get("deviations", [])
-
-    draw_time(draw)
-    if transit_data:
+        draw_time(draw)
         draw_transit_section(draw, filter_relevant_trains(transit_data.get("data", {})),datetime.fromisoformat(transit_data.get("parsed_at", str(datetime.fromtimestamp(1)))))
-        if len(messages) == 0:
-            draw_headlines(draw, utils.load_cache(config.NEWS_CACHE_FILENAME)["headlines"])
-        else:
-            draw_transit_messages(draw, messages)
+        messages = []
+        messages = transit_data.get("deviations", [])
+        if messages:
+            draw_messages(draw, messages, config.TRAIN_DEVIATION_HEADER_TEXT)
+        elif news:
+            messages = news.get("headlines", False)
+            if messages:
+                draw_messages(draw, messages, config.NEWS_HEADER_TEXT)
+
     if weather_data:
         draw_weather(draw, img, weather_data)
 
@@ -372,6 +369,11 @@ def push_to_fb():
         f.write(raw)
 
 if __name__ == "__main__":
+    os.makedirs("logs", exist_ok=True)
+    handler = TimedRotatingFileHandler(f"{config.PROJECT_FOLDER}/logs/dashboard-renderer.log", when="midnight", backupCount=7)
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
+
     while True:
         main()
         time.sleep(config.DRAW_IMAGE_UPDATE_FREQUENCY_SECONDS)

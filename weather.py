@@ -1,5 +1,7 @@
 import requests
-import json
+import os
+from logging.handlers import TimedRotatingFileHandler
+import logging
 import config
 import time
 from datetime import datetime
@@ -209,7 +211,7 @@ def fetch_weather(location):
     # API-reference: https://open-meteo.com/
 
     try:
-        weather = WEATHER_SESSION.get(f"{WEATHER_API_BASE_URL}?{location}&{WEATHER_API_PARAMS}", headers={"Accept": "application/json"}, timeout=20)
+        weather = WEATHER_SESSION.get(f"{WEATHER_API_BASE_URL}?{location}&{WEATHER_API_PARAMS}", headers={"Accept": "application/json"}, timeout=config.REQUESTS_TIMEOUT_DURATION)
         weather.raise_for_status()
         return weather.json()
     except requests.exceptions.RequestException as e:
@@ -251,4 +253,8 @@ def parse_weather(weather):
     return parsed_weather
 
 if __name__ == "__main__":
+    os.makedirs("logs", exist_ok=True)
+    handler = TimedRotatingFileHandler(f"{config.PROJECT_FOLDER}/logs/dashboard-weather.log", when="midnight", backupCount=7)
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
     main()
