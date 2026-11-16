@@ -34,7 +34,7 @@ def parse_news():
     })
 
 if __name__ == "__main__":
-    os.makedirs("logs", exist_ok=True)
+    os.makedirs(f"{config.PROJECT_FOLDER}/logs", exist_ok=True)
     handler = TimedRotatingFileHandler(f"{config.PROJECT_FOLDER}/logs/dashboard-news.log", when="midnight", backupCount=7)
     handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
     logging.basicConfig(level=logging.INFO, handlers=[handler, logging.StreamHandler()])
