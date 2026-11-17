@@ -1,6 +1,6 @@
 import config
 import utils
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance
 import numpy as np
 from functools import lru_cache
 from dataclasses import dataclass
@@ -95,6 +95,9 @@ TRANSIT_CELL_WIDTH = int((config.MONITOR_RESOLUTION_WIDTH - config.MONITOR_PADDI
 WEATHER_CELL_WIDTH = 195
 MAX_WIDTH = int(config.MONITOR_RESOLUTION_WIDTH - 2 * config.MONITOR_PADDING_X)
 
+LOW_BRIGHTNESS_START_TIME = datetime.strptime(config.NIGHTTIME_BRIGHTNESS_REDUCTION_START, "%H:%M").time()
+LOW_BRIGHTNESS_STOP_TIME = datetime.strptime(config.NIGHTTIME_BRIGHTNESS_REDUCTION_STOP, "%H:%M").time()
+
 font_header_large = load_font(config.FONT_FILENAME_NORMAL, 64)
 font_header_small = load_font(config.FONT_FILENAME_NORMAL, 28)
 font_subheader = load_font(config.FONT_FILENAME_BOLD, 20)
@@ -142,6 +145,9 @@ def compute_status(dep: dict) -> str:
     if dep.get("delayed", False):
         return "delayed"
     return "on_time"
+
+def reduce_image_brightness(img):
+    return ImageEnhance.Brightness(img).enhance(config.NIGHTTIME_BRIGHTNESS_LEVEL)
 
 def format_time_left(dep: dict) -> str:
     arrival = datetime.fromisoformat(str(dep["new_arrival_time_timestamp"]))
@@ -344,6 +350,9 @@ def main():
 
     if weather_data:
         draw_weather(draw, img, weather_data)
+
+    if utils.is_low_intense(datetime.now().time(), LOW_BRIGHTNESS_START_TIME, LOW_BRIGHTNESS_STOP_TIME):
+        img = reduce_image_brightness(img)
 
     img.save(config.OUTPUT_IMAGE_FILENAME)
 
